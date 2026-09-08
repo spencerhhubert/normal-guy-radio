@@ -94,7 +94,7 @@
     hat: ['x.x.x.x.x.x.x.x.', 'x.x.x.x.x.x.x.o.', 'X.x.X.x.X.x.X.x.', 'xxxxxxxxxxxxxxxx', 'x.xxx.xxx.xxx.xx', 'x.x.x.xxx.x.x.x.'],
   };
   const SHAKER = ['xXxxxXxxxXxxxXxx', 'XxxxXxxxXxxxXxxx', 'xxXxxxXxxxXxxxXx'];
-  const GUITAR_PATTERNS = ['x.xx.x.xx.xx.x.x', 'x..x..x.x..x..x.', '.x.x.x.x.x.x.x.x', 'x.x.xxx.x.x.xxx.', '..x...x...x...x.', 'x.x.x.x.x.x.x.x.', 'x..xx..xx..xx..x'];
+  const GUITAR_PATTERNS = ['x.xx.x.xx.xx.x.x', 'x.xxx.xxx.xxx.xx', 'xx.xxx.xxx.xxx.x', 'x.x.xxx.x.x.xxx.', 'x.xx.xx.x.xx.xx.', 'xxxxxxxxxxxxxxxx', 'x..xx.xxx..xx.xx'];
   const EP_PATTERNS = ['......x.......x.', 'x.........x.....', '......x...x.....', 'x.....x.......x.', '..x.......x.....', 'x...............'];
   // bass patterns: [slot, len, what]; what: 'r' root, '5' fifth, 'o' octave, 'w1'/'w2' chromatic approach to next root (from below/above), '3' third, 'b7'
   const BASS_PATTERNS = [
@@ -138,6 +138,7 @@
     const guitarPat = rng.pick(GUITAR_PATTERNS);
     const epPat = rng.pick(EP_PATTERNS);
     const ending = rng.weighted([['stop', 4], ['fill', 3], ['slide', 2]]);
+    const organPad = rng.chance(0.6);
     const flavor = rng.weighted([['funk', 4], ['goofy', 2], ['sweet', 2], ['caper', 2]]);
 
     // section plan
@@ -153,7 +154,7 @@
     const total = plan.reduce((s, p) => s + p.bars, 0);
 
     return {
-      id, key, keyName: KEY_NAMES[key], tempo, prog, chords, melodyInst, compInst, bassPat, drums, shaker, guitarPat, epPat, ending, flavor, plan, total,
+      id, key, keyName: KEY_NAMES[key], tempo, prog, chords, melodyInst, compInst, bassPat, drums, shaker, guitarPat, epPat, ending, flavor, plan, total, organPad,
       motifSeed: rng.i(1e9),
       title: `cue ${id}: ${KEY_NAMES[key]} ${prog.name}, ${tempo} bpm, ${flavor}`,
     };
@@ -371,7 +372,7 @@
       if (L.guitar) {
         // 3-note voicing between G3 and E5 on muted guitar, scratching the pattern
         const voicing = voiceChord(ch, 55, 76, 3);
-        grid(cue.guitarPat, s => { for (const n of voicing) push(slotT(s) + 0.005, 0.12, 'electric_guitar_muted', n, (s % 4 === 0 ? 0.7 : 0.5) * E); });
+        grid(cue.guitarPat, s => { for (const n of voicing) push(slotT(s) + 0.005, 0.16, 'electric_guitar_muted', n, (s % 4 === 0 ? 0.75 : s % 2 ? 0.45 : 0.6) * E); });
         // occasional single-string pickup
         if (rng.chance(0.15)) push(3.5, 0.12, 'electric_guitar_muted', voicing[0] - 12, 0.5);
       }
@@ -380,7 +381,11 @@
         const voicing = voiceChord(ch, inst === 'rock_organ' ? 55 : 60, inst === 'rock_organ' ? 76 : 79, ch.q.length > 3 ? 4 : 3);
         let pat = cue.epPat;
         if (S === 'intro') pat = 'x...............';
-        grid(pat, s => { for (const n of voicing) push(slotT(s), inst === 'rock_organ' ? 0.4 : 0.9, inst, n, 0.6); });
+        // the bed: a held wurly chord every bar, plus an organ pad when the wurly is also doing the comping
+        const held = voiceChord(ch, 55, 74, 3);
+        for (const n of held) push(0, 3.85, 'electric_piano_1', n, S === 'intro' ? 0.4 : 0.5);
+        if (inst !== 'rock_organ' && S !== 'intro' && cue.organPad) for (const n of voiceChord(ch, 55, 74, 3)) push(0, 3.9, 'rock_organ', n, 0.35);
+        grid(pat, s => { for (const n of voicing) push(slotT(s), inst === 'rock_organ' ? 0.4 : 0.9, inst, n, 0.65); });
         if (rng.chance(0.12) && S !== 'intro') { const sc = scaleFor(ch, cue.key); const a = voicing[voicing.length - 1]; push(3.5, 0.2, inst, scaleStep(a, sc, 1), 0.5); push(3.75, 0.2, inst, scaleStep(a, sc, 2), 0.5); }
       }
       if (L.organStab && barInSection % 2 === 1) {

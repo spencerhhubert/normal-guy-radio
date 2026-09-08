@@ -15,6 +15,8 @@ class H(http.server.SimpleHTTPRequestHandler):
         open(p, 'wb').write(data)
         self.send_response(200); self.send_header('Content-Type', 'text/plain'); self.end_headers(); self.wfile.write(p.encode())
         print('saved', p, n, 'bytes', flush=True)
+    def end_headers(self):
+        self.send_header('Cache-Control', 'no-store'); super().end_headers()
     def log_message(self, *a): pass
 
 print(f'harness on http://127.0.0.1:{port}', flush=True)

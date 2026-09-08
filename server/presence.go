@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ttl          = 60 * time.Second
+	ttl          = 25 * time.Second
 	recent       = 24 * time.Hour
 	maxListeners = 10000
 	MinStation   = 875
@@ -48,6 +48,12 @@ func (p *Presence) Touch(station int, id string, now time.Time) api.Station {
 	p.last[station] = now.Unix()
 	p.dirty = true
 	return api.Station{Id: station, Listeners: p.count(station), LastHeard: now.Unix()}
+}
+
+func (p *Presence) Leave(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.listeners, id)
 }
 
 func (p *Presence) Stations(now time.Time) ([]api.Station, int) {

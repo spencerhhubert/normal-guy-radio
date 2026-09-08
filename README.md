@@ -1,4 +1,4 @@
-# Normal Guy Radio
+# Normal Radio
 
 An FM band of stations that all play 2000s family-comedy film score, composed live in the browser
 and never repeating. Funk rhythm section, whistle, french horns, strings, harp glissandi, choir, and

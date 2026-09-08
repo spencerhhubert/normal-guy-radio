@@ -13,6 +13,11 @@ import (
 	"net/http"
 )
 
+// Leave defines model for Leave.
+type Leave struct {
+	Listener string `json:"listener"`
+}
+
 // Listen defines model for Listen.
 type Listen struct {
 	Listener string `json:"listener"`
@@ -48,12 +53,18 @@ type StationList struct {
 	Stations  []Station `json:"stations"`
 }
 
+// LeaveJSONRequestBody defines body for Leave for application/json ContentType.
+type LeaveJSONRequestBody = Leave
+
 // ListenJSONRequestBody defines body for Listen for application/json ContentType.
 type ListenJSONRequestBody = Listen
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Listen Heartbeat from a listener tuned to a station. Send every 20 seconds while playing.
+	// Leave The listener stopped or left the page; drop them from the counts right away.
+	// (POST /leave)
+	Leave(w http.ResponseWriter, r *http.Request)
+	// Listen Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25.
 	// (POST /listen)
 	Listen(w http.ResponseWriter, r *http.Request)
 	// GetNow Server clock, so every listener computes the same station position.
@@ -75,6 +86,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// Leave operation middleware
+func (siw *ServerInterfaceWrapper) Leave(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.Leave(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // Listen operation middleware
 func (siw *ServerInterfaceWrapper) Listen(w http.ResponseWriter, r *http.Request) {
@@ -255,9 +280,26 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/now", wrapper.GetNow)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/stations", wrapper.ListStations)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/listen", wrapper.Listen)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/leave", wrapper.Leave)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/version", wrapper.GetVersion)
 
 	return m
+}
+
+type LeaveRequestObject struct {
+	Body *LeaveJSONRequestBody
+}
+
+type LeaveResponseObject interface {
+	VisitLeaveResponse(w http.ResponseWriter) error
+}
+
+type Leave204Response struct {
+}
+
+func (response Leave204Response) VisitLeaveResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
 }
 
 type ListenRequestObject struct {
@@ -357,7 +399,10 @@ func (response GetVersion200JSONResponse) VisitGetVersionResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// Listen Heartbeat from a listener tuned to a station. Send every 20 seconds while playing.
+	// Leave The listener stopped or left the page; drop them from the counts right away.
+	// (POST /leave)
+	Leave(ctx context.Context, request LeaveRequestObject) (LeaveResponseObject, error)
+	// Listen Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25.
 	// (POST /listen)
 	Listen(ctx context.Context, request ListenRequestObject) (ListenResponseObject, error)
 	// GetNow Server clock, so every listener computes the same station position.
@@ -408,6 +453,37 @@ type strictHandler struct {
 	ssi         StrictServerInterface
 	middlewares []StrictMiddlewareFunc
 	options     StrictHTTPServerOptions
+}
+
+// Leave operation middleware
+func (sh *strictHandler) Leave(w http.ResponseWriter, r *http.Request) {
+	var request LeaveRequestObject
+
+	var body LeaveJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.Leave(ctx, request.(LeaveRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "Leave")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LeaveResponseObject); ok {
+		if err := validResponse.VisitLeaveResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
 }
 
 // Listen operation middleware

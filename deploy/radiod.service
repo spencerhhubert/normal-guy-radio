@@ -1,5 +1,5 @@
 [Unit]
-Description=Normal Guy Radio
+Description=Normal Radio
 After=network-online.target
 Wants=network-online.target
 

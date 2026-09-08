@@ -33,6 +33,12 @@ func TestPresence(t *testing.T) {
 		t.Fatalf("after a day: %+v", stations)
 	}
 
+	p.Touch(1013, "listener-d", now.Add(recent+2*time.Minute))
+	p.Leave("listener-d")
+	if _, total := p.Stations(now.Add(recent + 2*time.Minute)); total != 0 {
+		t.Fatalf("leave: %d", total)
+	}
+
 	if err := p.Save(); err != nil {
 		t.Fatal(err)
 	}

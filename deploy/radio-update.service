@@ -1,5 +1,5 @@
 [Unit]
-Description=Normal Guy Radio release check
+Description=Normal Radio release check
 
 [Service]
 Type=oneshot

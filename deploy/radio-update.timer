@@ -1,5 +1,5 @@
 [Unit]
-Description=Normal Guy Radio release check every three minutes
+Description=Normal Radio release check every three minutes
 
 [Timer]
 OnBootSec=1min

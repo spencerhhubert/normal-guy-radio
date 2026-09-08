@@ -32,7 +32,7 @@ class Rng {
   }
 }
 
-const MAJOR = [0, 2, 4, 5, 7, 9, 11];
+const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], mixo: [0, 2, 4, 5, 7, 9, 10], minor: [0, 2, 3, 5, 7, 8, 10] };
 export const KEY_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 const QUAL = { maj: [0, 4, 7], min: [0, 3, 7], dom: [0, 4, 7, 10], maj7: [0, 4, 7, 11], min7: [0, 3, 7, 10], maj6: [0, 4, 7, 9] };
 const PROGRESSIONS = [
@@ -51,10 +51,42 @@ const PROGRESSIONS = [
   { name: 'I bVII (vamp)', w: 3, bars: [[0, 'maj'], [10, 'maj'], [0, 'maj'], [10, 'maj']] },
   { name: 'I vi ii V', w: 2, bars: [[0, 'maj6'], [9, 'min7'], [2, 'min7'], [7, 'dom']] },
 ];
+const MINOR_PROGRESSIONS = [
+  { name: 'i bVII bVI bVII', w: 4, bars: [[0, 'min'], [10, 'maj'], [8, 'maj'], [10, 'maj']] },
+  { name: 'i bVI bIII bVII', w: 3, bars: [[0, 'min'], [8, 'maj'], [3, 'maj'], [10, 'maj']] },
+  { name: 'i iv i V', w: 2, bars: [[0, 'min'], [5, 'min'], [0, 'min'], [7, 'dom']] },
+  { name: 'i bVII (vamp)', w: 3, bars: [[0, 'min'], [10, 'maj'], [0, 'min'], [10, 'maj']] },
+  { name: 'i bIII bVII IV', w: 2, bars: [[0, 'min'], [3, 'maj'], [10, 'maj'], [5, 'maj']] },
+  { name: 'i (vamp)', w: 3, bars: [[0, 'min7'], [0, 'min7'], [0, 'min7'], [0, 'min7']] },
+];
+const MIXO_NAMES = ['vamp', 'I bVII IV I', 'I bVII (vamp)', 'I IV/I', 'I bIII IV I', 'I IV I V', 'I IV (8)'];
+const LEADS = ['whistle', 'clarinet', 'glockenspiel', 'muted_trumpet', 'electric_piano_1'];
+
+// A station's personality: fixed for the frequency, shapes every cue it plays.
+export function stationProfile(id) {
+  const r = new Rng(hash32(id, 0x5eed));
+  const lead = r.weighted([['whistle', 4], ['clarinet', 2], ['glockenspiel', 1.5], ['muted_trumpet', 1.5], ['electric_piano_1', 1]]);
+  const second = r.pick(LEADS.filter(x => x !== lead));
+  const kit = r.weighted([['full', 4], ['light', 2], ['perc', 1.5]]);
+  const main = r.weighted([['funk', 3], ['goofy', 2], ['sweet', 2], ['caper', 2]]);
+  return {
+    tempo: r.weighted([[[84, 94], 2], [[94, 108], 4], [[108, 124], 2]]),
+    swing: r.weighted([[0, 4], [0.18, 2], [0.32, 1]]),
+    melody: [[lead, 6], [second, 2]],
+    comp: r.weighted([['electric_piano_1', 4], ['rock_organ', 2], ['none', 1]]),
+    kit, guitar: r.chance(kit === 'perc' ? 0.3 : 0.75),
+    orchestra: r.weighted([['full', 3], ['chamber', 2], ['none', 1]]),
+    mode: r.weighted([['major', 5], ['mixo', 2], ['minor', 2]]),
+    flavors: ['funk', 'goofy', 'sweet', 'caper'].map(f => [f, f === main ? 5 : 1]),
+    density: r.range(0.7, 1.2),
+    space: r.range(0.6, 1.4),
+  };
+}
+const DEFAULT_PROFILE = stationProfile(1013);
 
 export function chordTones(ch) { return QUAL[ch.q].map(x => (x + ch.root) % 12); }
-export function scaleFor(ch, key) {
-  const sc = MAJOR.map(x => (x + key) % 12);
+export function scaleFor(ch, key, mode = 'major') {
+  const sc = SCALES[mode].map(x => (x + key) % 12);
   for (const t of chordTones(ch)) {
     if (sc.includes(t)) continue;
     let best = -1, bd = 99;
@@ -108,20 +140,20 @@ const MELODY_RHYTHMS = [
   [2, 2, 2, 2, 2, 2, 4, 6, -10], [3, 3, 2, 8, 3, 3, 2, 8], [4, 2, 2, 2, 2, 4, 12, -4], [-4, 2, 2, 4, 4, 4, 8, -4],
   [2, 4, 2, 4, 4, 12, -4], [4, 4, 8, 4, 4, 8], [6, 6, 4, 6, 6, 4], [-2, 2, 2, 2, 4, 2, 2, 4, 8, -4],
 ];
-const MELODY_INSTRUMENTS = [['whistle', 7], ['clarinet', 2], ['glockenspiel', 1.2], ['muted_trumpet', 1.2], ['electric_piano_1', 1]];
 export const RANGE = {
   whistle: [67, 84], clarinet: [60, 84], glockenspiel: [84, 103], muted_trumpet: [60, 79], electric_piano_1: [67, 88],
   french_horn: [48, 72], string_ensemble_1: [48, 84], choir_aahs: [55, 79], orchestral_harp: [43, 96], bassoon: [36, 60],
   tuba: [29, 50], pizzicato_strings: [43, 79], rock_organ: [48, 84], electric_guitar_muted: [52, 76], electric_bass_finger: [31, 50],
 };
 
-function makeCue(rng, id, prev) {
+function makeCue(rng, id, prev, P) {
   let key;
   do { key = rng.weighted([[7, 5], [0, 4], [2, 4], [5, 3], [9, 3], [10, 2], [4, 2], [3, 1], [11, 1]]); } while (prev && key === prev.key && rng.chance(0.8));
-  const tempo = Math.round(rng.range(94, 108));
-  const prog = rng.weighted(PROGRESSIONS.map(p => [p, p.w]));
+  const tempo = Math.round(rng.range(P.tempo[0], P.tempo[1]));
+  const pool = P.mode === 'minor' ? MINOR_PROGRESSIONS : P.mode === 'mixo' ? PROGRESSIONS.filter(p => MIXO_NAMES.includes(p.name)) : PROGRESSIONS;
+  const prog = rng.weighted(pool.map(p => [p, p.w]));
   const chords = prog.bars.map(b => ({ root: (b[0] + key) % 12, q: b[1], bass: b.length > 2 ? (b[2] + key) % 12 : (b[0] + key) % 12 }));
-  const flavor = rng.weighted([['funk', 4], ['goofy', 2], ['sweet', 2], ['caper', 2]]);
+  const flavor = rng.weighted(P.flavors);
   const plan = [{ name: 'intro', bars: rng.pick([2, 4]) }, { name: 'groove', bars: 4 }, { name: 'A', bars: 8 }];
   if (rng.chance(0.6)) plan.push({ name: 'build', bars: 4 });
   plan.push({ name: 'B', bars: 8 });
@@ -130,11 +162,12 @@ function makeCue(rng, id, prev) {
   plan.push({ name: 'outro', bars: 1 });
   return {
     id, key, keyName: KEY_NAMES[key], tempo, prog, chords, flavor, plan, total: plan.reduce((s, p) => s + p.bars, 0),
-    melodyInst: rng.weighted(MELODY_INSTRUMENTS),
-    compInst: rng.weighted([['electric_piano_1', 5], ['rock_organ', 2], ['none', 1]]),
+    mode: P.mode, swing: P.swing, kit: P.kit, orchestra: P.orchestra, useGuitar: P.guitar,
+    melodyInst: rng.weighted(P.melody),
+    compInst: rng.chance(0.8) ? P.comp : rng.weighted([['electric_piano_1', 5], ['rock_organ', 2], ['none', 1]]),
     bassPat: rng.weighted(BASS_PATTERNS.map(p => [p, p.name.startsWith('ref') ? 3 : 1.5])),
-    drums: { kick: rng.pick(DRUM_PATTERNS.kick), snare: rng.pick(DRUM_PATTERNS.snare), hat: rng.pick(DRUM_PATTERNS.hat) },
-    shaker: rng.pick(SHAKER), guitarPat: rng.pick(GUITAR_PATTERNS), epPat: rng.pick(EP_PATTERNS),
+    drums: { kick: rng.pick(DRUM_PATTERNS.kick), snare: rng.pick(DRUM_PATTERNS.snare), hat: P.density < 0.85 ? rng.pick(DRUM_PATTERNS.hat.slice(0, 3)) : P.density > 1.05 ? rng.pick(DRUM_PATTERNS.hat.slice(2)) : rng.pick(DRUM_PATTERNS.hat) },
+    shaker: rng.pick(SHAKER), guitarPat: P.density < 0.85 ? rng.pick(GUITAR_PATTERNS.slice(0, 2)) : rng.pick(GUITAR_PATTERNS), epPat: rng.pick(EP_PATTERNS),
     ending: rng.weighted([['stop', 4], ['fill', 3], ['slide', 2]]),
     organPad: rng.chance(0.6),
     introStyle: rng.weighted([['vamp', 4], ['slide', 2], ['solo', 2], ['oompah', flavor === 'goofy' ? 3 : 0.5], ['harp', flavor === 'sweet' ? 3 : 1]]),
@@ -156,7 +189,7 @@ function generateMelody(rng, cue, inst, sectionBars, chordAt, lift) {
     const notesOnly = rhythm.filter(x => x > 0).length;
     for (const r of rhythm) {
       if (r < 0) { slot += -r; continue; }
-      const ch = chordAt(slot), scale = scaleFor(ch, cue.key), tones = chordTones(ch);
+      const ch = chordAt(slot), scale = scaleFor(ch, cue.key, cue.mode), tones = chordTones(ch);
       const strong = (slot % 8) === 0 || idx === notesOnly - 1;
       if (idx === 0) pitch = snapTo(pitch, tones);
       else {
@@ -191,10 +224,10 @@ function generateMelody(rng, cue, inst, sectionBars, chordAt, lift) {
       continue;
     }
     for (let i = 0; i < A.length; i++) {
-      const e = A[i], slot = start + e.slot, ch = chordAt(slot), scale = scaleFor(ch, cue.key), tones = chordTones(ch);
+      const e = A[i], slot = start + e.slot, ch = chordAt(slot), scale = scaleFor(ch, cue.key, cue.mode), tones = chordTones(ch);
       const last = i === A.length - 1, strong = (slot % 8) === 0 || last;
       let midi = e.midi, len = e.len;
-      if (kind === 'A3' && last) { midi = snapTo(midi, [cue.key, (cue.key + 4) % 12, (cue.key + 7) % 12]); len = Math.max(len, 12); }
+      if (kind === 'A3' && last) { midi = snapTo(midi, [cue.key, (cue.key + (cue.mode === 'minor' ? 3 : 4)) % 12, (cue.key + 7) % 12]); len = Math.max(len, 12); }
       else if (strong) midi = snapTo(midi, tones);
       else if (!scale.includes(((midi % 12) + 12) % 12)) midi = snapTo(midi, scale);
       if (kind === 'A2' && i > 0 && rng.chance(0.25)) midi = scaleStep(midi, scale, rng.pick([-1, 1]));
@@ -204,21 +237,21 @@ function generateMelody(rng, cue, inst, sectionBars, chordAt, lift) {
   return events.filter(e => e.slot < sectionBars * 16);
 }
 
-function harpGliss(push, ch, key, t0, span) {
-  const sc = scaleFor(ch, key), n = 14;
+function harpGliss(push, ch, key, mode, t0, span) {
+  const sc = scaleFor(ch, key, mode), n = 14;
   let m = snapTo(52 + ch.root % 12, sc);
   for (let i = 0; i < n; i++) { push(t0 + (span * i) / n, 0.5, 'orchestral_harp', m, 0.35 + 0.5 * i / n); m = scaleStep(m, sc, 1); }
 }
 
 // One radio: an endless run of cues from one seed. With a deadline (seconds) it wraps up before it:
 // the cue in progress jumps to its outro, and the leftover is one silent bar.
-export function createRadio(seed, deadline = Infinity) {
+export function createRadio(seed, deadline = Infinity, profile = DEFAULT_PROFILE) {
   const rng = new Rng(seed || 1);
   let cueCount = 0, cue = null, prevCue = null, barInCue = 0, sectionIdx = 0, barInSection = 0, elapsed = 0, done = false;
   let melody = null, lead2 = null;
 
   const chordForBar = b => cue.chords[((b % cue.chords.length) + cue.chords.length) % cue.chords.length];
-  function startCue() { prevCue = cue; cue = makeCue(rng, ++cueCount, prevCue); barInCue = 0; sectionIdx = 0; }
+  function startCue() { prevCue = cue; cue = makeCue(rng, ++cueCount, prevCue, profile); barInCue = 0; sectionIdx = 0; }
   function startSection() {
     const sec = cue.plan[sectionIdx];
     barInSection = 0; melody = null; lead2 = null;
@@ -245,7 +278,7 @@ export function createRadio(seed, deadline = Infinity) {
 
     const ev = [], b = barInCue, ch = chordForBar(b), nextCh = chordForBar(b + 1);
     const last = barInCue === cue.total - 1, secLast = barInSection === sec.bars - 1, S = sec.name, flavor = cue.flavor;
-    const push = (t, dur, inst, note, vel, extra) => ev.push(Object.assign({ t, dur, inst, note, vel }, extra || {}));
+    const push = (t, dur, inst, note, vel, extra) => ev.push(Object.assign({ t: t + (cue.swing && Math.round(t * 4) % 2 ? cue.swing * 0.08 : 0), dur, inst, note, vel }, extra || {}));
     const slotT = s => s / 4;
     const grid = (pat, fn) => { for (let s = 0; s < 16; s++) if (pat[s] !== '.') fn(s, pat[s]); };
     const rhythmSec = ['groove', 'A', 'build', 'B', 'climax'].includes(S);
@@ -254,13 +287,13 @@ export function createRadio(seed, deadline = Infinity) {
       shaker: S !== 'outro' || cue.ending !== 'stop',
       triangle: cue.triangle,
       bass: S !== 'outro',
-      drums: rhythmSec || (S === 'outro' && cue.ending === 'fill'),
-      guitar: rhythmSec && flavor !== 'sweet',
+      drums: cue.kit !== 'perc' && (rhythmSec || (S === 'outro' && cue.ending === 'fill')),
+      guitar: cue.useGuitar && rhythmSec && flavor !== 'sweet',
       comp: rhythmSec,
       organStab: ['build', 'climax'].includes(S) && cue.compInst !== 'rock_organ',
-      strings: ['build', 'B', 'climax'].includes(S) || (S === 'breakdown' && melody && melody.style === 'harp'),
-      horns: ['build', 'climax'].includes(S) || (S === 'B' && flavor === 'caper'),
-      choir: S === 'climax',
+      strings: cue.orchestra !== 'none' && (['build', 'B', 'climax'].includes(S) || (S === 'breakdown' && melody && melody.style === 'harp')),
+      horns: cue.orchestra === 'full' && (['build', 'climax'].includes(S) || (S === 'B' && flavor === 'caper')),
+      choir: cue.orchestra === 'full' && S === 'climax',
       tuba: (S === 'breakdown' && melody && melody.style === 'duet') || (flavor === 'goofy' && S === 'B'),
       bassoon: (S === 'breakdown' && melody && melody.style === 'duet') || (flavor === 'goofy' && ['B', 'climax'].includes(S)),
       pizz: (S === 'breakdown' && melody && melody.style === 'pizz') || (flavor === 'caper' && ['A', 'B'].includes(S)),
@@ -295,9 +328,10 @@ export function createRadio(seed, deadline = Infinity) {
     if (L.drums) {
       const fill = (secLast && rng.chance(0.6) && S !== 'outro') || (S === 'outro' && cue.ending === 'fill');
       const hatP = S === 'climax' && rng.chance(0.5) ? 'xxxxxxxxxxxxxxxx' : cue.drums.hat;
-      grid(cue.drums.kick, s => push(slotT(s), 0.3, 'kick', null, 0.95));
-      grid(cue.drums.snare, (s, c) => push(slotT(s), 0.3, 'snare', null, c === 'g' ? 0.3 : 0.9));
-      grid(hatP, (s, c) => push(slotT(s), c === 'o' ? 0.6 : 0.08, 'hat', null, c === 'X' ? 0.75 : c === 'o' ? 0.6 : (s % 2 ? 0.35 : 0.55), c === 'o' ? { open: true } : null));
+      const light = cue.kit === 'light';
+      grid(light ? 'x.......x.......' : cue.drums.kick, s => push(slotT(s), 0.3, 'kick', null, light ? 0.75 : 0.95));
+      grid(light ? '....x.......x...' : cue.drums.snare, (s, c) => push(slotT(s), 0.3, 'snare', null, c === 'g' ? 0.3 : light ? 0.6 : 0.9));
+      if (!light) grid(hatP, (s, c) => push(slotT(s), c === 'o' ? 0.6 : 0.08, 'hat', null, c === 'X' ? 0.75 : c === 'o' ? 0.6 : (s % 2 ? 0.35 : 0.55), c === 'o' ? { open: true } : null));
       if (fill) {
         const start = rng.pick([12, 10, 8]);
         for (let s = start; s < 16; s++) push(slotT(s), 0.2, 'snare', null, 0.45 + 0.5 * (s - start) / (16 - start));
@@ -337,7 +371,7 @@ export function createRadio(seed, deadline = Infinity) {
       for (const n of voiceChord(ch, 55, 74, 3)) push(0, 3.85, 'electric_piano_1', n, S === 'intro' ? 0.4 : 0.5);
       if (inst !== 'rock_organ' && S !== 'intro' && cue.organPad) for (const n of voiceChord(ch, 55, 74, 3)) push(0, 3.9, 'rock_organ', n, 0.35);
       grid(pat, s => { for (const n of voicing) push(slotT(s), inst === 'rock_organ' ? 0.4 : 0.9, inst, n, 0.65); });
-      if (rng.chance(0.12) && S !== 'intro') { const sc = scaleFor(ch, cue.key), a = voicing[voicing.length - 1]; push(3.5, 0.2, inst, scaleStep(a, sc, 1), 0.5); push(3.75, 0.2, inst, scaleStep(a, sc, 2), 0.5); }
+      if (rng.chance(0.12) && S !== 'intro') { const sc = scaleFor(ch, cue.key, cue.mode), a = voicing[voicing.length - 1]; push(3.5, 0.2, inst, scaleStep(a, sc, 1), 0.5); push(3.75, 0.2, inst, scaleStep(a, sc, 2), 0.5); }
     }
     if (L.organStab && barInSection % 2 === 1) {
       const voicing = voiceChord(ch, 60, 79, 3);
@@ -357,7 +391,7 @@ export function createRadio(seed, deadline = Infinity) {
         let hold = 1; while (hold < 4 && chordForBar(b + hold) === ch && barInSection + hold < sec.bars) hold++;
         for (const n of voicing) push(0, 4 * hold - 0.1, 'string_ensemble_1', n, S === 'climax' ? 0.7 : 0.5, { swell: S === 'build' });
       }
-      if (S === 'climax' && secLast) { const sc = scaleFor(ch, cue.key); for (let k = 0; k < 4; k++) push(2 + k * 0.5, 0.5, 'string_ensemble_1', scaleStep(voicing[3], sc, k + 1), 0.6); }
+      if (S === 'climax' && secLast) { const sc = scaleFor(ch, cue.key, cue.mode); for (let k = 0; k < 4; k++) push(2 + k * 0.5, 0.5, 'string_ensemble_1', scaleStep(voicing[3], sc, k + 1), 0.6); }
     }
     if (L.horns) {
       const root = 53 + ((ch.root - 5 + 12) % 12);
@@ -384,7 +418,7 @@ export function createRadio(seed, deadline = Infinity) {
         if (Math.floor(e.slot / 16) !== barInSection) continue;
         const t = (e.slot % 16) / 4, dur = e.len / 4 - 0.06, extra = {};
         if (e.orn === 'scoop') { extra.glide = -2; extra.glideTime = 0.09; }
-        if (e.orn === 'grace') push(t - 0.09, 0.09, melody.inst, scaleStep(e.midi, scaleFor(ch, cue.key), -1), e.vel * 0.7);
+        if (e.orn === 'grace') push(t - 0.09, 0.09, melody.inst, scaleStep(e.midi, scaleFor(ch, cue.key, cue.mode), -1), e.vel * 0.7);
         push(t, dur, melody.inst, e.midi, e.vel, extra);
         if (lead2 && lead2 !== 'none') push(t, dur, lead2, fold(lead2 === 'glockenspiel' ? e.midi + 12 : e.midi, RANGE[lead2]), e.vel * 0.7);
       }
@@ -396,27 +430,28 @@ export function createRadio(seed, deadline = Infinity) {
         for (const n of voiceChord(ch, 55, 79, 4)) { push(0, 0.35, 'french_horn', n, 0.9); push(0, 0.35, 'string_ensemble_1', n, 0.8); }
         push(0, 0.3, 'electric_bass_finger', 33 + ((ch.bass - 9 + 12) % 12), 1);
         if (cue.triangle) push(0, 2, 'triangle', null, 0.9, { pitch: cue.trianglePitch });
-        harpGliss(push, ch, cue.key, 2.5, 1.4);
-      } else if (cue.ending === 'slide') harpGliss(push, ch, cue.key, 3.0, 0.9);
-    } else if (secLast && ['groove', 'A', 'B', 'build'].includes(S) && rng.chance(0.35)) harpGliss(push, nextCh, cue.key, 3.0, 0.9);
+        harpGliss(push, ch, cue.key, cue.mode, 2.5, 1.4);
+      } else if (cue.ending === 'slide') harpGliss(push, ch, cue.key, cue.mode, 3.0, 0.9);
+    } else if (secLast && ['groove', 'A', 'B', 'build'].includes(S) && rng.chance(0.35)) harpGliss(push, nextCh, cue.key, cue.mode, 3.0, 0.9);
 
     const out = { dur: barDur, tempo: cue.tempo, cue: cueInfo(), section: { name: S, index: barInSection, bars: sec.bars }, chord: chordName(ch), events: ev, layers: Object.keys(L).filter(k => L[k]) };
     elapsed += barDur; barInCue++; barInSection++;
     if (barInSection >= sec.bars) { sectionIdx++; if (sectionIdx >= cue.plan.length) startCue(); startSection(); }
     return out;
   }
-  function cueInfo() { return { id: cue.id, keyName: cue.keyName, tempo: cue.tempo, flavor: cue.flavor, melodyInst: cue.melodyInst, prog: cue.prog.name }; }
+  function cueInfo() { return { id: cue.id, keyName: cue.keyName + (cue.mode === 'minor' ? 'm' : ''), tempo: cue.tempo, flavor: cue.flavor, melodyInst: cue.melodyInst, prog: cue.prog.name }; }
   function chordName(ch) { return KEY_NAMES[ch.root] + (ch.q.startsWith('min') ? 'm' : ch.q === 'dom' ? '7' : ''); }
   return { nextBar };
 }
 
 // A station: a frequency id (875..1080) whose timeline since EPOCH is a chain of SEGMENT-long radios.
 export function createStation(id) {
+  const profile = stationProfile(id);
   let seg = -1, radio = null, elapsed = 0;
-  const open = k => { seg = k; radio = createRadio(hash32(id, k, 0x9e3779b9), SEGMENT); elapsed = 0; };
+  const open = k => { seg = k; radio = createRadio(hash32(id, k, 0x9e3779b9), SEGMENT, profile); elapsed = 0; };
   const take = () => { let bar = radio.nextBar(); if (!bar) { open(seg + 1); bar = radio.nextBar(); } const start = seg * SEGMENT + elapsed; elapsed += bar.dur; return { bar, start }; };
   return {
-    id,
+    id, profile,
     tune(t) { open(Math.floor(t / SEGMENT)); let x; do { x = take(); } while (x.start + x.bar.dur <= t); return x; },
     next: take,
   };

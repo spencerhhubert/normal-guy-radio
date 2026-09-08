@@ -32,6 +32,13 @@ func (s *Server) Listen(ctx context.Context, req api.ListenRequestObject) (api.L
 	return api.Listen200JSONResponse(s.p.Touch(b.Station, b.Listener, time.Now())), nil
 }
 
+func (s *Server) Leave(ctx context.Context, req api.LeaveRequestObject) (api.LeaveResponseObject, error) {
+	if req.Body != nil && len(req.Body.Listener) >= 8 {
+		s.p.Leave(req.Body.Listener)
+	}
+	return api.Leave204Response{}, nil
+}
+
 func (s *Server) GetVersion(ctx context.Context, _ api.GetVersionRequestObject) (api.GetVersionResponseObject, error) {
 	return api.GetVersion200JSONResponse{Version: version}, nil
 }

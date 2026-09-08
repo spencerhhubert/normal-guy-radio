@@ -90,7 +90,8 @@ export class Engine {
     this.bus = ctx.createGain();
     this.reverb = ctx.createConvolver(); this.reverb.buffer = this.impulse(2.4, 0.55);
     this.reverbReturn = ctx.createGain(); this.reverbReturn.gain.value = 0.9;
-    this.reverb.connect(this.reverbReturn).connect(this.bus);
+    this.space = ctx.createGain();
+    this.reverb.connect(this.space).connect(this.reverbReturn).connect(this.bus);
     this.bus.connect(lowShelf).connect(highShelf).connect(comp).connect(makeup).connect(clip).connect(this.master).connect(this.analyser).connect(ctx.destination);
     this.strips = {};
     for (const [name, cfg] of Object.entries({ ...INSTRUMENTS, ...DRUMS })) {
@@ -102,7 +103,17 @@ export class Engine {
       const send = ctx.createGain(); send.gain.value = cfg.send || 0; pan.connect(send).connect(this.reverb);
       this.strips[name] = { input, user, send };
     }
+    this.meters = {};
+    for (const [stem, strips] of STEMS) {
+      const m = ctx.createAnalyser(); m.fftSize = 512; m.smoothingTimeConstant = 0;
+      if (stem === 'reverb') this.reverbReturn.connect(m); else for (const st of strips) this.strips[st].user.connect(m);
+      this.meters[stem] = m;
+    }
   }
+  /** time-domain samples of one stem after its fader, for the scope @param {string} stem @param {Float32Array} out */
+  wave(stem, out) { this.meters[stem]?.getFloatTimeDomainData(out); }
+  /** station room size, 0.6 dry to 1.4 roomy @param {number} x */
+  setSpace(x) { this.space.gain.setTargetAtTime(x, this.ctx.currentTime, 0.1); }
   setLevel(name, v) {
     const p = name === 'reverb' ? this.reverbReturn.gain : this.strips[name]?.user.gain;
     if (p) p.setTargetAtTime(name === 'reverb' ? 0.9 * v : v, this.ctx.currentTime, 0.02);

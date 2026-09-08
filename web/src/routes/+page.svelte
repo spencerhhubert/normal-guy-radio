@@ -9,6 +9,8 @@
 	import Knob from '$lib/ui/Knob.svelte';
 	import VuMeter from '$lib/ui/VuMeter.svelte';
 	import Mixer from '$lib/ui/Mixer.svelte';
+	import Scope from '$lib/ui/Scope.svelte';
+	import { attach, useStation, param } from '$lib/mix.svelte';
 	import Stations from '$lib/ui/Stations.svelte';
 
 	type Station = { id: number; listeners: number; lastHeard: number };
@@ -32,6 +34,7 @@
 	const onair = $derived(new Map(stations.filter((s) => s.listeners > 0).map((s) => [s.id, s.listeners])));
 	const recent = $derived(new Set(stations.filter((s) => s.listeners === 0).map((s) => s.id)));
 	const stationTime = () => (Date.now() + clockOffset) / 1000 - EPOCH;
+	const url = () => `?fm=${(freq / 10).toFixed(1)}` + (param() ? `&mix=${param()}` : '');
 
 	async function syncClock() {
 		const t0 = Date.now();
@@ -42,10 +45,16 @@
 		const { data } = await api.GET('/stations');
 		if (data) { stations = data.stations; totalListeners = data.listeners; here = data.stations.find((s) => s.id === freq)?.listeners ?? (power ? 1 : 0); }
 	}
-	async function beat() {
-		if (!playing) return;
-		const { data } = await api.POST('/listen', { body: { station: freq, listener: listenerId } });
-		if (data) here = data.listeners;
+	async function beat(station = freq) {
+		if (!power) return;
+		const { data } = await api.POST('/listen', { body: { station, listener: listenerId } });
+		if (data && station === freq) here = data.listeners;
+		refresh();
+	}
+	function leave() {
+		try { navigator.sendBeacon('/api/leave', new Blob([JSON.stringify({ listener: listenerId })], { type: 'application/json' })); } catch { /* page is going away anyway */ }
+		stations = stations.map((s) => (s.id === freq ? { ...s, listeners: Math.max(0, s.listeners - 1) } : s));
+		here = Math.max(0, here - 1);
 	}
 	function prepare() {
 		if (ready) return ready;
@@ -57,7 +66,7 @@
 			(window as unknown as { __ngr: unknown }).__ngr = { engine: e, get player() { return player; } };
 			const samples = await loadSamples((d, t) => (loading = `loading instruments ${d}/${t}`));
 			await e.load(samples, (p, inst) => (loading = `tuning ${inst.replace(/_/g, ' ')} ${Math.round(p * 100)}%`));
-			engine = e; loading = '';
+			engine = e; attach(e); loading = '';
 		})();
 		return ready;
 	}
@@ -72,7 +81,9 @@
 			if (engine.ctx.state !== 'running') return;
 			player?.stop();
 			player = new Player(engine, (bar) => { now = bar.silent ? null : { cue: `${bar.cue.keyName} · ${bar.cue.prog} · ${bar.tempo} bpm · ${bar.cue.flavor}`, section: `${bar.section.name} ${bar.section.index + 1}/${bar.section.bars} · ${bar.cue.melodyInst.replace(/_/g, ' ')}`, chord: bar.chord }; });
-			player.start(createStation(freq), stationTime);
+			const station = createStation(freq);
+			engine.setSpace(station.profile.space);
+			player.start(station, stationTime);
 			playing = true;
 			beat();
 		} finally { starting = false; }
@@ -81,8 +92,11 @@
 	function tune(id: number) {
 		id = Math.min(HI, Math.max(LO, id));
 		if (id === freq) return;
-		freq = id; now = null; here = onair.get(id) ?? 0;
-		history.replaceState(null, '', `?fm=${(id / 10).toFixed(1)}`);
+		const from = freq;
+		freq = id; now = null; here = (onair.get(id) ?? 0) + (power ? 1 : 0);
+		useStation(id);
+		history.replaceState(null, '', url());
+		if (power) { stations = stations.map((s) => (s.id === from ? { ...s, listeners: Math.max(0, s.listeners - 1) } : s.id === id ? { ...s, listeners: s.listeners + 1 } : s)); beat(id); }
 		if (!playing || !engine) return;
 		stop();
 		engine.static_(engine.ctx.currentTime + 0.02, 0.35, 0.18);
@@ -91,7 +105,7 @@
 	function toggle() {
 		power = !power;
 		if (power) tuneIn();
-		else { clearTimeout(retune); stop(); here = Math.max(0, here - 1); }
+		else { clearTimeout(retune); stop(); leave(); }
 	}
 	function kick(e: Event) {
 		if ((e.target as HTMLElement).closest?.('.power')) return;
@@ -99,11 +113,15 @@
 	}
 
 	onMount(() => {
-		const fm = parseFloat(new URLSearchParams(location.search).get('fm') || '');
+		const params = new URLSearchParams(location.search), fm = parseFloat(params.get('fm') || '');
 		if (fm) freq = Math.min(HI, Math.max(LO, Math.round(fm * 10)));
+		useStation(freq, params.get('mix'));
+		$effect.root(() => { $effect(() => { const u = url(); if (location.search !== u) history.replaceState(null, '', u); }); });
 		syncClock(); refresh(); tuneIn();
-		const timers = [setInterval(refresh, 10000), setInterval(syncClock, 300000), setInterval(beat, 20000)];
+		const timers = [setInterval(refresh, 5000), setInterval(syncClock, 300000), setInterval(beat, 10000)];
 		window.addEventListener('click', kick); window.addEventListener('keydown', kick);
+		const bye = () => { if (power) leave(); };
+		window.addEventListener('pagehide', bye);
 		const buf = new Uint8Array(512);
 		let raf = 0;
 		const draw = () => {
@@ -121,11 +139,11 @@
 			if (e.key === 'ArrowRight') tune(freq + 1);
 		};
 		window.addEventListener('keydown', keys);
-		return () => { timers.forEach(clearInterval); cancelAnimationFrame(raf); window.removeEventListener('keydown', keys); window.removeEventListener('click', kick); window.removeEventListener('keydown', kick); };
+		return () => { timers.forEach(clearInterval); cancelAnimationFrame(raf); window.removeEventListener('keydown', keys); window.removeEventListener('click', kick); window.removeEventListener('keydown', kick); window.removeEventListener('pagehide', bye); };
 	});
 </script>
 
-<svelte:head><title>{name.freq} {name.call} · Normal Guy Radio</title></svelte:head>
+<svelte:head><title>{name.freq} {name.call} · Normal Radio</title></svelte:head>
 
 <main>
 	<div class="radio">
@@ -146,6 +164,7 @@
 		</div>
 
 		<Dial {freq} {onair} {recent} onTune={tune} />
+		<Scope {engine} {playing} />
 
 		<div class="controls">
 			<div class="vu"><VuMeter {level} /></div>
@@ -156,14 +175,15 @@
 			<div class="tuner"><Knob value={freq} onStep={(d) => tune(freq + d)} /><span class="plate">TUNE</span></div>
 		</div>
 
-		{#if mixerOpen}<div class="drawer"><Mixer {engine} /></div>{/if}
+		{#if mixerOpen}<div class="drawer"><Mixer /></div>{/if}
 	</div>
 
 	<Stations {stations} current={freq} onTune={tune} />
 </main>
 
 <style>
-	main { max-width: 780px; margin: 0 auto; padding: 28px 16px 60px; }
+	main { max-width: 1360px; margin: 0 auto; padding: 24px 16px 60px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 22px; align-items: start; }
+	@media (max-width: 1040px) { main { grid-template-columns: 1fr; max-width: 780px; } }
 
 	.radio {
 		border-radius: 26px; padding: 22px;
@@ -207,11 +227,15 @@
 	.drawer { margin-top: 18px; }
 
 	@media (max-width: 640px) {
-		.top { grid-template-columns: 1fr; }
+		main { padding: 10px 8px 40px; gap: 14px; }
+		.top { grid-template-columns: 1fr; margin-bottom: 12px; }
 		.grille { display: none; }
-		.controls { grid-template-columns: 1fr 1fr; }
-		.vu { grid-column: 1 / -1; max-width: none; }
-		.radio { padding: 14px; }
-		.big { font-size: 32px; }
+		.display { padding: 10px 12px; min-height: 0; }
+		.controls { grid-template-columns: 1fr auto; gap: 12px 16px; margin-top: 14px; }
+		.vu { max-width: 170px; }
+		.buttons { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+		.radio { padding: 12px; border-radius: 18px; }
+		.big { font-size: 30px; }
+		.row3 { white-space: normal; }
 	}
 </style>

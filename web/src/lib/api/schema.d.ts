@@ -47,8 +47,25 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Heartbeat from a listener tuned to a station. Send every 20 seconds while playing. */
+        /** Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25. */
         post: operations["listen"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The listener stopped or left the page; drop them from the counts right away. */
+        post: operations["leave"];
         delete?: never;
         options?: never;
         head?: never;
@@ -103,6 +120,9 @@ export interface components {
             stations: components["schemas"]["Station"][];
             /** @description everyone listening right now */
             listeners: number;
+        };
+        Leave: {
+            listener: string;
         };
         Listen: {
             station: number;
@@ -178,6 +198,28 @@ export interface operations {
             };
             /** @description bad station or listener id */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    leave: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Leave"];
+            };
+        };
+        responses: {
+            /** @description gone */
+            204: {
                 headers: {
                     [name: string]: unknown;
                 };

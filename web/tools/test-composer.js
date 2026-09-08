@@ -1,5 +1,8 @@
 // node tools/test-composer.js — structural checks on the composer, no audio.
-import { createStation, createRadio, chordTones, RANGE, SEGMENT, stationName, stationProfile } from '../src/lib/composer.js';
+import { createStation, stationName, SEGMENT } from '../src/lib/music/station.js';
+import { createRadio } from '../src/lib/music/arrange.js';
+import { chordTones } from '../src/lib/music/theory.js';
+import { RANGE, stationProfile } from '../src/lib/music/style.js';
 
 let problems = 0;
 const bad = (...m) => { problems++; console.log('PROBLEM', ...m); };

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { loadSamples } from '$lib/samples';
-	import { renderOffline } from '$lib/engine.js';
+	import { renderOffline } from '$lib/audio/render.js';
 
 	let status = $state('rendering');
 	onMount(async () => {

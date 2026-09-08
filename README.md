@@ -35,8 +35,14 @@ Changing `api/openapi.yaml`: `cd server && go generate ./...` and `cd web && npm
 
 ## Release
 
-    scripts/release.sh 0.2.0
+    scripts/release.sh            # bumps the patch version from the latest tag; or `minor`, `major`
 
 The tag triggers the release workflow, which builds the site and the Linux binary and publishes them
 as release assets. A host installed with `deploy/install.sh` checks for a new release every three
 minutes and swaps itself over.
+
+## Sharing
+
+Links preview with `web/static/og.png`, a screenshot of the `/og` route. The server fills in the
+host and, for a `?fm=` link, the station's frequency in the title. Regenerate the image with
+`web/tools/og.sh` while the dev servers are up.

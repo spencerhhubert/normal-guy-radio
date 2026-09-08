@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { STEMS } from '../engine.js';
+	import { STEMS } from '../audio/engine.js';
 	import { activity, fader, set, reset, COLORS } from '../mix.svelte';
 </script>
 

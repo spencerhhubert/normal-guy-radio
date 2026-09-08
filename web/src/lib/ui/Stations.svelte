@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { stationName, stationProfile } from '../composer.js';
+	import { stationName } from '../music/station.js';
+	import { stationProfile } from '../music/style.js';
 	import People from './People.svelte';
 	type Person = { name: string; emoji: string };
 	type Station = { id: number; listeners: number; lastHeard: number; people: Person[] };
@@ -29,7 +30,7 @@
 			<ul>
 				{#each onair as s (s.id)}
 					{@const n = stationName(s.id)}
-					<li class:current={s.id === current}><button onclick={() => onTune(s.id)}><b class="freq amber">{n.freq}</b><span class="tag">{stationProfile(s.id).groove}</span><span class="slogan">{n.slogan}</span></button><span class="who amber"><People people={s.people} {me} max={3} /></span></li>
+					<li class:current={s.id === current}><button onclick={() => onTune(s.id)}><b class="freq amber">{n.freq}</b><span class="tag">{stationProfile(s.id).groove}</span><span class="slogan">{n.slogan}</span></button><span class="who amber"><People people={s.people} {me} /></span></li>
 				{/each}
 			</ul>
 		</div>

@@ -1,4 +1,4 @@
-import { INSTRUMENTS } from './engine.js';
+import { INSTRUMENTS } from './audio/engine.js';
 
 export type Samples = Record<string, Record<string, string>>;
 

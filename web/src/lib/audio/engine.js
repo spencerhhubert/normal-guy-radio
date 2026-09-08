@@ -1,6 +1,5 @@
 // Web Audio playback: sampled GM instruments (steady state looped for long notes), synthesized
 // percussion, a generated-impulse reverb, and a glue compressor. Works live or on an OfflineAudioContext.
-import { createStation } from './composer.js';
 
 const NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B'];
 const db = x => Math.pow(10, x / 20);
@@ -224,75 +223,3 @@ export class Engine {
 }
 
 // Live playback of one station, tuned in at the station's current time.
-export class Player {
-  /** @param {Engine} engine @param {(bar: any) => void} [onBar] */
-  constructor(engine, onBar) { this.engine = engine; this.onBar = onBar; this.timer = null; this.pending = new Set(); }
-  // clock(): station time in seconds (since EPOCH), corrected to the server
-  /** @param {{ tune: (t: number) => any, next: () => any }} station @param {() => number} clock */
-  start(station, clock) {
-    const ctx = this.engine.ctx, now = clock();
-    const { bar, start } = station.tune(now);
-    this.station = station; this.clock = clock;
-    this.ctxAtStation = ctx.currentTime + 0.12 - now; // ctx time = station time + offset
-    this.queued = { bar, start };
-    this.notBefore = ctx.currentTime + 0.1;
-    const g = this.engine.master.gain; g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(0.0001, ctx.currentTime); g.linearRampToValueAtTime(0.9, ctx.currentTime + 0.4);
-    this.tick(); this.timer = setInterval(() => this.tick(), 90);
-  }
-  tick() {
-    const ctx = this.engine.ctx;
-    while (this.queued.start + this.ctxAtStation < ctx.currentTime + 0.7) {
-      const { bar, start } = this.queued, at = start + this.ctxAtStation;
-      this.engine.scheduleBar(bar, at, this.notBefore);
-      const id = setTimeout(() => { this.pending.delete(id); this.onBar?.(bar); }, Math.max(0, (at - ctx.currentTime) * 1000));
-      this.pending.add(id);
-      this.queued = this.station.next();
-    }
-  }
-  stop() {
-    clearInterval(this.timer); this.timer = null;
-    for (const id of this.pending) clearTimeout(id); this.pending.clear();
-    const ctx = this.engine.ctx, g = this.engine.master.gain;
-    g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(g.value, ctx.currentTime); g.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.2);
-    setTimeout(() => this.engine.panic(), 250);
-  }
-}
-
-export function encodeWav(buffer) {
-  const ch = buffer.numberOfChannels, n = buffer.length, out = new ArrayBuffer(44 + n * ch * 2), v = new DataView(out);
-  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
-  str(0, 'RIFF'); v.setUint32(4, 36 + n * ch * 2, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, ch, true);
-  v.setUint32(24, buffer.sampleRate, true); v.setUint32(28, buffer.sampleRate * ch * 2, true); v.setUint16(32, ch * 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, n * ch * 2, true);
-  const chans = []; for (let c = 0; c < ch; c++) chans.push(buffer.getChannelData(c));
-  let o = 44;
-  for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) { const s = Math.max(-1, Math.min(1, chans[c][i])); v.setInt16(o, s < 0 ? s * 32768 : s * 32767, true); o += 2; }
-  return out;
-}
-
-// Offline render of a station from a station time; for the analysis loop, never for listeners.
-/** @param {Record<string, Record<string, string>>} samples @param {number} stationId @param {number} stationTime @param {number} seconds @param {(p: number, inst: string) => void} [onProgress] */
-export async function renderOffline(samples, stationId, stationTime, seconds, onProgress) {
-  const ctx = new OfflineAudioContext(2, Math.floor(44100 * seconds), 44100);
-  const engine = new Engine(ctx); await engine.load(samples, onProgress);
-  const station = createStation(stationId);
-  /** @type {object[]} */
-  const log = [];
-  let q = station.tune(stationTime);
-  const AHEAD = 3.0;
-  let t = 0.05 - (stationTime - q.start);
-  /** @param {number} limit */
-  function scheduleUntil(limit) {
-    while (t < limit && t < seconds) {
-      const { bar } = q; engine.scheduleBar(bar, t, 0);
-      log.push({ t: +t.toFixed(2), cue: bar.cue.id, sec: bar.section.name, chord: bar.chord, tempo: bar.tempo, key: bar.cue.keyName, mel: bar.cue.melodyInst, layers: bar.layers.join(' ') });
-      t += bar.dur; q = station.next();
-    }
-  }
-  function arm() {
-    const at = Math.floor((t - 1.0) * 44100 / 128) * 128 / 44100;
-    if (t >= seconds || at <= ctx.currentTime + 0.01 || at >= seconds - 0.05) return;
-    ctx.suspend(at).then(() => { scheduleUntil(ctx.currentTime + AHEAD); arm(); ctx.resume(); });
-  }
-  scheduleUntil(AHEAD); arm();
-  return { wav: encodeWav(await ctx.startRendering()), log };
-}

@@ -1,16 +1,17 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { STEMS } from '../engine.js';
+	import { STEMS } from '../audio/engine.js';
 	import { activity, fader, set, COLORS } from '../mix.svelte';
 	let { engine, playing }: { engine: { wave: (stem: string, out: Float32Array) => void } | null; playing: boolean } = $props();
 	let canvas: HTMLCanvasElement;
 	const stems = STEMS.map(([n]) => n), lanes = stems.filter((n) => n !== 'reverb');
-	const N = 1024, SPAN = (N * 3) / 4;
+	const N = 1024, SPAN = (N * 3) / 4, STEP = 4, POINTS = SPAN / STEP;
 
 	onMount(() => {
 		const g = canvas.getContext('2d')!, dpr = Math.min(2, devicePixelRatio || 1);
 		const bufs = Object.fromEntries(stems.map((s) => [s, new Float32Array(N)]));
 		const peak: Record<string, number> = {}, ref: Record<string, number> = {}, loud: Record<string, number> = {}, lane: Record<string, number> = {};
+		const trace: Record<string, Float32Array> = {};
 		const size = () => { canvas.width = Math.round(canvas.clientWidth * dpr); canvas.height = Math.round(canvas.clientHeight * dpr); };
 		const ro = new ResizeObserver(size); ro.observe(canvas); size();
 		let raf = 0;
@@ -31,21 +32,25 @@
 				peak[s] = Math.max(p, (peak[s] ?? 0) * 0.97, 0.02);
 				ref[s] = Math.max(p, (ref[s] ?? 0) * 0.995, 0.02);
 				activity[s] = (activity[s] ?? 0) * 0.5 + Math.min(1, (1.6 * rms) / ref[s]) * 0.5;
-				if (s !== 'reverb' && loud[s] > 0.002) live.push(s); else delete lane[s];
+				if (s !== 'reverb' && loud[s] > 0.002) live.push(s); else { delete lane[s]; delete trace[s]; }
 			}
-			// one lane per sounding stem, stacked like a multi-channel scope; each trace is scaled to its own recent peak,
-			// and the activity that lights the legend and the mixer is relative to the stem's own recent loudness
+			// one lane per sounding stem, stacked like a multi-channel scope. Each trace is scaled to its own recent peak,
+			// triggered on a zero crossing, and eased toward the previous frame so it drifts instead of jumping; the
+			// activity that lights the legend and the mixer is relative to the stem's own recent loudness
 			const n = live.length, amp = Math.min(0.3, 0.7 / Math.max(1, n)) * H;
-			g.globalCompositeOperation = 'lighter'; g.lineWidth = 1.4; g.lineJoin = 'round'; g.font = '700 10px "SF Mono", Menlo, Consolas, monospace';
+			g.globalCompositeOperation = 'lighter'; g.lineWidth = 1.5; g.lineJoin = 'round';
 			live.forEach((s, i) => {
 				const target = ((i + 0.5) / n) * H, cy = (lane[s] = lane[s] == null ? target : lane[s] + (target - lane[s]) * 0.15);
 				const w = bufs[s], gain = 1 / peak[s];
 				let t = 0; for (let k = 1; k < N - SPAN; k++) if (w[k - 1] < 0 && w[k] >= 0) { t = k; break; }
-				g.strokeStyle = g.fillStyle = g.shadowColor = COLORS[s];
-				g.globalAlpha = 0.55; g.shadowBlur = 0; g.fillText(s.toUpperCase(), 8, cy + 3.5);
+				const tr = (trace[s] ??= new Float32Array(POINTS));
+				for (let k = 0; k < POINTS; k++) tr[k] += (Math.max(-1, Math.min(1, w[t + k * STEP] * gain)) - tr[k]) * 0.22;
+				const px = (k: number) => (k / (POINTS - 1)) * W, py = (k: number) => cy - tr[k] * amp;
+				g.strokeStyle = g.shadowColor = COLORS[s];
 				g.globalAlpha = 0.5 + activity[s] * 0.45; g.shadowBlur = 8;
-				g.beginPath();
-				for (let k = 0; k < SPAN; k += 2) { const x = (k / (SPAN - 1)) * W, y = cy - Math.max(-1, Math.min(1, w[t + k] * gain)) * amp; k ? g.lineTo(x, y) : g.moveTo(x, y); }
+				g.beginPath(); g.moveTo(px(0), py(0));
+				for (let k = 1; k < POINTS - 1; k++) g.quadraticCurveTo(px(k), py(k), (px(k) + px(k + 1)) / 2, (py(k) + py(k + 1)) / 2);
+				g.lineTo(px(POINTS - 1), py(POINTS - 1));
 				g.stroke();
 			});
 		};

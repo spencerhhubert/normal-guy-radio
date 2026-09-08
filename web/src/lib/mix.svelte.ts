@@ -1,4 +1,4 @@
-import { STEMS } from './engine.js';
+import { STEMS } from './audio/engine.js';
 
 type Fader = { level: number; mute: boolean };
 type Levels = { setLevel: (name: string, v: number) => void };

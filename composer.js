@@ -142,6 +142,11 @@
     const flavor = rng.weighted([['funk', 4], ['goofy', 2], ['sweet', 2], ['caper', 2]]);
     const introStyle = rng.weighted([['vamp', 4], ['slide', 2], ['solo', 2], ['oompah', flavor === 'goofy' ? 3 : 0.5], ['harp', flavor === 'sweet' ? 3 : 1]]);
     const afterFill = !!(prev && prev.ending === 'fill');
+    // the triangle is a spice, not a constant: half the cues, three placements, its own pitch per cue
+    const triangle = rng.chance(0.5);
+    const trianglePattern = rng.weighted([['downbeat', 3], ['offbeat', 2], ['sparse', 2]]);
+    const trianglePitch = rng.range(0.82, 1.18);
+    const introDing = triangle && rng.chance(0.4);
 
     // section plan
     const plan = [];
@@ -156,7 +161,7 @@
     const total = plan.reduce((s, p) => s + p.bars, 0);
 
     return {
-      id, key, keyName: KEY_NAMES[key], tempo, prog, chords, melodyInst, compInst, bassPat, drums, shaker, guitarPat, epPat, ending, flavor, plan, total, organPad, introStyle, afterFill,
+      id, key, keyName: KEY_NAMES[key], tempo, prog, chords, melodyInst, compInst, bassPat, drums, shaker, guitarPat, epPat, ending, flavor, plan, total, organPad, introStyle, afterFill, triangle, trianglePattern, trianglePitch, introDing,
       motifSeed: rng.i(1e9),
       title: `cue ${id}: ${KEY_NAMES[key]} ${prog.name}, ${tempo} bpm, ${flavor}`,
     };
@@ -311,7 +316,7 @@
       const S = sec.name;
       const L = {
         shaker: S !== 'outro' || cue.ending !== 'stop',
-        triangle: true,
+        triangle: cue.triangle,
         bass: S !== 'outro' && !(S === 'intro' && cue.flavor === 'sweet' && barInSection < 2),
         drums: ['groove', 'A', 'build', 'B', 'climax'].includes(S) || (S === 'intro' && barInSection >= 2 && rng.chance(0.5)) || (S === 'outro' && cue.ending === 'fill'),
         guitar: ['groove', 'A', 'build', 'B', 'climax'].includes(S) && flavor !== 'sweet',
@@ -345,9 +350,12 @@
       // ---- rhythm section ----
       if (L.shaker) grid(cue.shaker, (s, c) => push(slotT(s), 0.2, 'shaker', null, (c === 'X' ? 0.9 : 0.5) * (S === 'breakdown' ? 0.7 : 1)));
       if (L.triangle) {
-        if (b % 2 === 0 && rng.chance(0.85)) push(0, 1.5, 'triangle', null, 0.8);
-        if (rng.chance(0.3)) push(3.5, 0.3, 'triangle', null, 0.5, { muted: true });
-        if (S === 'intro' && barInSection === 0) push(0, 2, 'triangle', null, 1.0);
+        const tp = { pitch: cue.trianglePitch };
+        if (cue.trianglePattern === 'downbeat') { if (b % 2 === 0 && rng.chance(0.85)) push(0, 1.5, 'triangle', null, 0.7, tp); }
+        else if (cue.trianglePattern === 'offbeat') { if (rng.chance(0.8)) push(3.5, 1.2, 'triangle', null, 0.6, tp); }
+        else if (b % 4 === 0) push(0, 1.5, 'triangle', null, 0.7, tp);
+        if (rng.chance(0.25)) push(rng.pick([1.5, 2.5]), 0.3, 'triangle', null, 0.4, Object.assign({ muted: true }, tp));
+        if (S === 'intro' && barInSection === 0 && cue.introDing) push(0, 2, 'triangle', null, 0.9, tp);
       }
       if (L.drums) {
         const fill = (secLast && rng.chance(0.6) && S !== 'outro') || (S === 'outro' && cue.ending === 'fill');
@@ -490,7 +498,7 @@
           push(0, 0.3, 'kick', null, 1); push(0, 0.3, 'snare', null, 0.9); push(0, 1.5, 'crash', null, 0.7);
           for (const n of voicing) { push(0, 0.35, 'french_horn', n, 0.9); push(0, 0.35, 'string_ensemble_1', n, 0.8); }
           push(0, 0.3, 'electric_bass_finger', 33 + ((ch.bass - 9 + 12) % 12), 1);
-          push(0, 2, 'triangle', null, 1);
+          if (cue.triangle) push(0, 2, 'triangle', null, 0.9, { pitch: cue.trianglePitch });
           harpGliss(push, ch, cue.key, 2.5, 1.4, rng);
         } else if (cue.ending === 'slide') {
           harpGliss(push, ch, cue.key, 3.0, 0.9, rng);

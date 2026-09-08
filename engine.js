@@ -98,13 +98,19 @@
       this.strips = {};
       for (const [name, cfg] of Object.entries(Object.assign({}, INSTRUMENTS, DRUMS))) {
         const input = ctx.createGain(); input.gain.value = db(cfg.gain + (cfg.norm || 0));
-        let node = input;
+        const user = ctx.createGain(); user.gain.value = 1; input.connect(user); // the listener's fader
+        let node = user;
         if (cfg.lp) { const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cfg.lp; f.Q.value = 0.5; node.connect(f); node = f; }
         const pan = ctx.createStereoPanner(); pan.pan.value = cfg.pan || 0; node.connect(pan);
         pan.connect(this.bus);
         const send = ctx.createGain(); send.gain.value = cfg.send || 0; pan.connect(send).connect(this.reverb);
-        this.strips[name] = { input, pan, send };
+        this.strips[name] = { input, user, pan, send };
       }
+    }
+    // listener faders: 0..1.5 per instrument strip, or 'reverb' for the return
+    setLevel(name, v) {
+      const p = name === 'reverb' ? this.reverbReturn.gain : (this.strips[name] && this.strips[name].user.gain);
+      if (p) p.setTargetAtTime(name === 'reverb' ? 0.9 * v : v, this.ctx.currentTime, 0.02);
     }
     async load(onProgress) {
       const sf = global.SF || {};
@@ -204,11 +210,11 @@
       const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel, t + 0.014); g.gain.exponentialRampToValueAtTime(0.0005, t + 0.09);
       n.connect(hp).connect(bp).connect(g).connect(out); n.start(t, Math.random() * 1.8); n.stop(t + 0.12); this.track(n);
     }
-    triangle(t, vel, muted) {
+    triangle(t, vel, muted, pitch) {
       const ctx = this.ctx, out = this.strips.triangle.input, decay = muted ? 0.1 : 1.7;
       const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(vel * 0.45, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0005, t + decay);
       const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500; g.connect(hp).connect(out);
-      const det = 1 + (Math.random() - 0.5) * 0.01;
+      const det = (pitch || 1) * (1 + (Math.random() - 0.5) * 0.01);
       for (const [f, a] of [[2870, 1], [4610, 0.6], [6930, 0.45], [9040, 0.3], [11780, 0.18]]) {
         const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = f * det; const og = ctx.createGain(); og.gain.value = a; o.connect(og).connect(g); o.start(t); o.stop(t + decay + 0.05); this.track(o);
       }
@@ -224,7 +230,7 @@
           case 'snare': this.snare(t, e.vel); break;
           case 'hat': this.hat(t, e.vel, !!e.open); break;
           case 'shaker': this.shaker(t, e.vel); break;
-          case 'triangle': this.triangle(t, e.vel, !!e.muted); break;
+          case 'triangle': this.triangle(t, e.vel, !!e.muted, e.pitch); break;
           case 'crash': this.crash(t, e.vel); break;
           default: this.play(e.inst, e.note, t, dur, e.vel, e);
         }

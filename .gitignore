@@ -1,3 +1,4 @@
 renders/
 .DS_Store
 node_modules/
+.vercel

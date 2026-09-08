@@ -119,7 +119,7 @@
   const RANGE = { // comfortable register [low, high] in midi for melody use
     whistle: [67, 84], clarinet: [60, 84], glockenspiel: [84, 103], muted_trumpet: [60, 79], electric_piano_1: [67, 88],
     french_horn: [48, 72], string_ensemble_1: [48, 84], choir_aahs: [55, 79], orchestral_harp: [43, 96], bassoon: [36, 60],
-    tuba: [29, 50], pizzicato_strings: [43, 79], rock_organ: [48, 84], electric_guitar_muted: [52, 76], electric_bass_finger: [28, 50],
+    tuba: [29, 50], pizzicato_strings: [43, 79], rock_organ: [48, 84], electric_guitar_muted: [52, 76], electric_bass_finger: [31, 50],
   };
 
   // ---------- cue construction ----------
@@ -140,6 +140,8 @@
     const ending = rng.weighted([['stop', 4], ['fill', 3], ['slide', 2]]);
     const organPad = rng.chance(0.6);
     const flavor = rng.weighted([['funk', 4], ['goofy', 2], ['sweet', 2], ['caper', 2]]);
+    const introStyle = rng.weighted([['vamp', 4], ['slide', 2], ['solo', 2], ['oompah', flavor === 'goofy' ? 3 : 0.5], ['harp', flavor === 'sweet' ? 3 : 1]]);
+    const afterFill = !!(prev && prev.ending === 'fill');
 
     // section plan
     const plan = [];
@@ -154,7 +156,7 @@
     const total = plan.reduce((s, p) => s + p.bars, 0);
 
     return {
-      id, key, keyName: KEY_NAMES[key], tempo, prog, chords, melodyInst, compInst, bassPat, drums, shaker, guitarPat, epPat, ending, flavor, plan, total, organPad,
+      id, key, keyName: KEY_NAMES[key], tempo, prog, chords, melodyInst, compInst, bassPat, drums, shaker, guitarPat, epPat, ending, flavor, plan, total, organPad, introStyle, afterFill,
       motifSeed: rng.i(1e9),
       title: `cue ${id}: ${KEY_NAMES[key]} ${prog.name}, ${tempo} bpm, ${flavor}`,
     };
@@ -187,10 +189,10 @@
           if (prevLeap !== 0) { move = -Math.sign(prevLeap); prevLeap = 0; } // resolve leaps by step
           else {
             const x = rng.f();
-            if (x < 0.12) move = 0;
-            else if (x < 0.68) move = dir;
-            else if (x < 0.88) move = dir * 2;
-            else move = dir * (rng.chance(0.5) ? 3 : 4);
+            if (x < 0.14) move = 0;
+            else if (x < 0.74) move = dir;
+            else if (x < 0.92) move = dir * 2;
+            else move = dir * (rng.chance(0.6) ? 3 : 4);
             if (rng.chance(0.28)) dir = -dir;
           }
           if (Math.abs(move) >= 3) prevLeap = move;
@@ -279,6 +281,9 @@
           sectionLead2 = rng.weighted([['string_ensemble_1', 3], ['glockenspiel', 2], ['clarinet', 1], ['none', 1]]);
         }
       }
+      if (sec.name === 'intro' && cue.introStyle === 'solo') {
+        sectionMelody = { inst: cue.melodyInst, events: generateMelody(rng, cue, cue.melodyInst, sec.bars, chordAt, {}) };
+      }
       if (sec.name === 'breakdown') {
         // woodwind duet: clarinet tune + bassoon bounce, or harp arps. Reuse melody generator on clarinet.
         const style = cue.flavor === 'sweet' ? 'harp' : rng.weighted([['duet', 3], ['harp', 1.5], ['pizz', 1.5]]);
@@ -319,7 +324,20 @@
         bassoon: (S === 'breakdown' && sectionMelody && sectionMelody.style === 'duet') || (flavor === 'goofy' && ['B', 'climax'].includes(S)),
         pizz: (S === 'breakdown' && sectionMelody && sectionMelody.style === 'pizz') || (flavor === 'caper' && ['A', 'B'].includes(S)),
         harp: S === 'breakdown' && sectionMelody && sectionMelody.style === 'harp',
+        organHold: false,
       };
+      if (S === 'intro') {
+        const st = cue.introStyle;
+        L.bass = st === 'vamp' || (st === 'slide' && barInSection >= 1) || (st === 'harp' && secLast) || cue.afterFill;
+        L.drums = cue.afterFill || (st === 'slide' ? secLast : (st === 'vamp' && barInSection >= 2 && rng.chance(0.5)));
+        L.comp = st === 'vamp' && (barInSection >= 1 || cue.afterFill);
+        L.strings = st === 'solo' || st === 'harp';
+        L.harp = st === 'harp';
+        L.tuba = st === 'oompah'; L.bassoon = st === 'oompah';
+        L.shaker = st !== 'solo' || cue.afterFill;
+        L.organHold = st === 'slide';
+        L.guitar = cue.afterFill && st === 'vamp';
+      }
       if (L.tuba) L.bass = false;
       if (S === 'breakdown') { L.drums = false; L.guitar = false; L.comp = false; }
       if (S === 'outro' && cue.ending === 'stop') { L.bass = false; L.guitar = false; L.comp = false; L.drums = false; }
@@ -348,8 +366,8 @@
       }
       if (L.bass) {
         const root = bassRootFor(b), nroot = bassRootFor(b + 1);
-        const base = 28 + ((root - 4 + 12) % 12); // E1..Eb2
-        const nbase = 28 + ((nroot - 4 + 12) % 12);
+        const base = 33 + ((root - 9 + 12) % 12); // A1..Ab2, G2 for a G root like the reference
+        const nbase = 33 + ((nroot - 9 + 12) % 12);
         let pat = cue.bassPat.p;
         if (S === 'intro' || S === 'breakdown') pat = BASS_PATTERNS[0].p;
         if (secLast && rng.chance(0.5) && S !== 'outro') pat = BASS_PATTERNS[3].p; // walk into the next section
@@ -358,7 +376,7 @@
           let n = base;
           if (what === '5') n = base + 7; else if (what === 'o') n = base + 12; else if (what === '3') n = base + third;
           else if (what === 'w1') n = nbase - 1; else if (what === 'w2') n = nbase + (rng.chance(0.5) ? 1 : -2);
-          if (n > 50) n -= 12; if (n < 28) n += 12;
+          if (n > 50) n -= 12; if (n < 31) n += 12;
           // the reference's chromatic wobble: G# G F# on the way home, once in a while
           push(slotT(s), Math.max(0.2, len / 4 - 0.05), 'electric_bass_finger', n, what === 'r' && s === 0 ? 0.95 : 0.8);
         }
@@ -372,7 +390,7 @@
       if (L.guitar) {
         // 3-note voicing between G3 and E5 on muted guitar, scratching the pattern
         const voicing = voiceChord(ch, 55, 76, 3);
-        grid(cue.guitarPat, s => { for (const n of voicing) push(slotT(s) + 0.005, 0.16, 'electric_guitar_muted', n, (s % 4 === 0 ? 0.75 : s % 2 ? 0.45 : 0.6) * E); });
+        grid(cue.guitarPat, s => { for (const n of voicing) push(slotT(s) + 0.005, 0.16, 'electric_guitar_muted', n, (s % 4 === 0 ? 0.7 : s % 2 ? 0.38 : 0.55) * E); });
         // occasional single-string pickup
         if (rng.chance(0.15)) push(3.5, 0.12, 'electric_guitar_muted', voicing[0] - 12, 0.5);
       }
@@ -392,6 +410,11 @@
         const voicing = voiceChord(ch, 60, 79, 3);
         for (const n of voicing) push(1.5, 0.25, 'rock_organ', n, 0.55);
         if (rng.chance(0.5)) for (const n of voicing) push(3.5, 0.25, 'rock_organ', n, 0.5);
+      }
+      if (L.organHold && barInSection === 0) {
+        const v = voiceChord(ch, 55, 76, 3); const hold = 4 * sec.bars - 0.3;
+        push(-0.5, hold + 0.5, 'rock_organ', v[v.length - 1], 0.55, { glide: -12, glideTime: 0.5 });
+        for (const n of v.slice(0, -1)) push(0.1, hold, 'rock_organ', n, 0.4);
       }
       // organ slide: a signature of the reference — a smeared rise into the chord, at section starts
       if (barInSection === 0 && ['groove', 'B', 'climax'].includes(S) && rng.chance(0.5)) {
@@ -466,7 +489,7 @@
           const voicing = voiceChord(ch, 55, 79, 4);
           push(0, 0.3, 'kick', null, 1); push(0, 0.3, 'snare', null, 0.9); push(0, 1.5, 'crash', null, 0.7);
           for (const n of voicing) { push(0, 0.35, 'french_horn', n, 0.9); push(0, 0.35, 'string_ensemble_1', n, 0.8); }
-          push(0, 0.3, 'electric_bass_finger', 28 + ((ch.bass - 4 + 12) % 12), 1);
+          push(0, 0.3, 'electric_bass_finger', 33 + ((ch.bass - 9 + 12) % 12), 1);
           push(0, 2, 'triangle', null, 1);
           harpGliss(push, ch, cue.key, 2.5, 1.4, rng);
         } else if (cue.ending === 'slide') {

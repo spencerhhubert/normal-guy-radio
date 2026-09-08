@@ -6,7 +6,7 @@
 <div class="mixer">
 	{#each STEMS as [name]}
 		{@const f = fader(name)}
-		{@const a = Math.min(1, (activity[name] ?? 0) * 6)}
+		{@const a = Math.min(1, (activity[name] ?? 0) * 14)}
 		<div class="stem" class:off={f.mute}>
 			<i class="led" style:background={f.mute ? '#3a2a2a' : COLORS[name]} style:opacity={f.mute ? 0.5 : 0.25 + 0.75 * a} style:box-shadow="0 0 {2 + 12 * a}px {COLORS[name]}"></i>
 			<span class="name">{name}</span>

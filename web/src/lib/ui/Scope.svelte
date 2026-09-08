@@ -5,42 +5,59 @@
 	let { engine, playing }: { engine: { wave: (stem: string, out: Float32Array) => void } | null; playing: boolean } = $props();
 	let canvas: HTMLCanvasElement;
 	const stems = STEMS.map(([n]) => n).filter((n) => n !== 'reverb');
+	const N = 1024, SPAN = (N * 3) / 4;
 
 	onMount(() => {
-		const g = canvas.getContext('2d')!, buf = new Float32Array(512);
+		const g = canvas.getContext('2d')!, dpr = Math.min(2, devicePixelRatio || 1);
+		const bufs = Object.fromEntries(stems.map((s) => [s, new Float32Array(N)]));
+		const peak: Record<string, number> = {}, lane: Record<string, number> = {};
+		const size = () => { canvas.width = Math.round(canvas.clientWidth * dpr); canvas.height = Math.round(canvas.clientHeight * dpr); };
+		const ro = new ResizeObserver(size); ro.observe(canvas); size();
 		let raf = 0;
 		const draw = () => {
 			raf = requestAnimationFrame(draw);
-			const W = canvas.width, H = canvas.height;
-			g.globalCompositeOperation = 'source-over';
+			const W = canvas.width / dpr, H = canvas.height / dpr;
+			g.setTransform(dpr, 0, 0, dpr, 0, 0);
+			g.globalCompositeOperation = 'source-over'; g.globalAlpha = 1; g.shadowBlur = 0;
 			g.fillStyle = 'rgba(3, 14, 8, 0.32)'; g.fillRect(0, 0, W, H);
 			if (!engine || !playing) { for (const s of stems) activity[s] = (activity[s] ?? 0) * 0.9; return; }
-			g.globalCompositeOperation = 'lighter'; g.lineWidth = 1.5; g.shadowBlur = 9; g.lineJoin = 'round';
+			const live: string[] = [];
 			for (const s of stems) {
-				engine.wave(s, buf);
-				let e = 0; for (let i = 0; i < buf.length; i++) e += buf[i] * buf[i];
-				const rms = Math.sqrt(e / buf.length);
+				const w = bufs[s]; engine.wave(s, w);
+				let e = 0, p = 0;
+				for (let i = 0; i < N; i++) { const x = w[i], a = x < 0 ? -x : x; e += x * x; if (a > p) p = a; }
+				const rms = Math.sqrt(e / N);
 				activity[s] = (activity[s] ?? 0) * 0.6 + rms * 0.4;
-				if (rms < 0.003) continue;
-				g.strokeStyle = COLORS[s]; g.shadowColor = COLORS[s]; g.globalAlpha = Math.min(0.9, 0.35 + rms * 4);
-				g.beginPath();
-				for (let i = 0; i < buf.length; i++) { const x = (i / (buf.length - 1)) * W, y = H / 2 - Math.max(-1, Math.min(1, buf[i] * 2.2)) * (H / 2 - 4); i ? g.lineTo(x, y) : g.moveTo(x, y); }
-				g.stroke();
+				peak[s] = Math.max(p, (peak[s] ?? 0) * 0.97, 0.02);
+				if (activity[s] > 0.002) live.push(s); else delete lane[s];
 			}
-			g.globalAlpha = 1; g.shadowBlur = 0;
+			// one lane per sounding stem, stacked like a multi-channel scope; each trace is scaled to its own recent peak
+			const n = live.length, amp = Math.min(0.3, 0.7 / Math.max(1, n)) * H;
+			g.globalCompositeOperation = 'lighter'; g.lineWidth = 1.4; g.lineJoin = 'round'; g.font = '700 10px "SF Mono", Menlo, Consolas, monospace';
+			live.forEach((s, i) => {
+				const target = ((i + 0.5) / n) * H, cy = (lane[s] = lane[s] == null ? target : lane[s] + (target - lane[s]) * 0.15);
+				const w = bufs[s], gain = 1 / peak[s];
+				let t = 0; for (let k = 1; k < N - SPAN; k++) if (w[k - 1] < 0 && w[k] >= 0) { t = k; break; }
+				g.strokeStyle = g.fillStyle = g.shadowColor = COLORS[s];
+				g.globalAlpha = 0.55; g.shadowBlur = 0; g.fillText(s.toUpperCase(), 8, cy + 3.5);
+				g.globalAlpha = Math.min(0.95, 0.5 + activity[s] * 10); g.shadowBlur = 8;
+				g.beginPath();
+				for (let k = 0; k < SPAN; k += 2) { const x = (k / (SPAN - 1)) * W, y = cy - Math.max(-1, Math.min(1, w[t + k] * gain)) * amp; k ? g.lineTo(x, y) : g.moveTo(x, y); }
+				g.stroke();
+			});
 		};
 		draw();
-		return () => cancelAnimationFrame(raf);
+		return () => { cancelAnimationFrame(raf); ro.disconnect(); };
 	});
 </script>
 
 <div class="crt">
-	<canvas bind:this={canvas} width="1000" height="220"></canvas>
+	<canvas bind:this={canvas}></canvas>
 	<div class="glass"></div>
 	<div class="legend">
 		{#each stems as s}
 			{@const f = fader(s)}
-			<button style:color={COLORS[s]} style:opacity={f.mute ? 0.3 : 0.45 + 0.55 * Math.min(1, (activity[s] ?? 0) * 6)} class:muted={f.mute} onclick={() => set(s, { mute: !f.mute })} title={f.mute ? 'unmute' : 'mute'}>{s}</button>
+			<button style:color={COLORS[s]} style:opacity={f.mute ? 0.3 : 0.45 + 0.55 * Math.min(1, (activity[s] ?? 0) * 14)} class:muted={f.mute} onclick={() => set(s, { mute: !f.mute })} title={f.mute ? 'unmute' : 'mute'}>{s}</button>
 		{/each}
 	</div>
 </div>
@@ -48,7 +65,7 @@
 <style>
 	.crt { position: relative; margin-top: 18px; border-radius: 14px; padding: 10px 12px 8px; background: #0a0f0c; box-shadow: inset 0 3px 14px rgba(0, 0, 0, 0.9), inset 0 0 0 2px #2c2a27, 0 1px 0 rgba(255, 255, 255, 0.55); overflow: hidden; }
 	canvas {
-		display: block; width: 100%; height: auto; border-radius: 8px;
+		display: block; width: 100%; height: 230px; border-radius: 8px;
 		background-color: #041009;
 		background-image: linear-gradient(rgba(120, 255, 170, 0.07) 1px, transparent 1px), linear-gradient(90deg, rgba(120, 255, 170, 0.07) 1px, transparent 1px), radial-gradient(ellipse at center, rgba(40, 120, 70, 0.25), transparent 70%);
 		background-size: 10% 25%, 10% 25%, 100% 100%;
@@ -59,4 +76,5 @@
 	.legend { display: flex; flex-wrap: wrap; gap: 2px 10px; padding: 8px 4px 0; }
 	.legend button { background: none; border: 0; padding: 0; font: 700 10px/1.6 "SF Mono", Menlo, Consolas, monospace; letter-spacing: 0.12em; text-transform: uppercase; text-shadow: 0 0 6px currentColor; transition: opacity 80ms linear; }
 	.legend button.muted { text-decoration: line-through; text-shadow: none; }
+	@media (max-width: 640px) { canvas { height: 170px; } }
 </style>

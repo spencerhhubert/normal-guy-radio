@@ -105,7 +105,7 @@ export class Engine {
     }
     this.meters = {};
     for (const [stem, strips] of STEMS) {
-      const m = ctx.createAnalyser(); m.fftSize = 512; m.smoothingTimeConstant = 0;
+      const m = ctx.createAnalyser(); m.fftSize = 1024; m.smoothingTimeConstant = 0;
       if (stem === 'reverb') this.reverbReturn.connect(m); else for (const st of strips) this.strips[st].user.connect(m);
       this.meters[stem] = m;
     }

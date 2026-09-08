@@ -28,7 +28,7 @@
 	let level = $state(0);
 	let mixerOpen = $state(false);
 	let clockOffset = 0, player: Player | null = null, retune = 0, starting = false, ready: Promise<void>;
-	const listenerId = (() => { try { const k = 'ngr.listener'; let v = localStorage.getItem(k); if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); } return v; } catch { return crypto.randomUUID(); } })();
+	const listenerId = (() => { try { const k = 'ngr.listener'; let v = sessionStorage.getItem(k); if (!v) { v = crypto.randomUUID(); sessionStorage.setItem(k, v); } return v; } catch { return crypto.randomUUID(); } })();
 
 	const name = $derived(stationName(freq));
 	const onair = $derived(new Map(stations.filter((s) => s.listeners > 0).map((s) => [s.id, s.listeners])));
@@ -146,6 +146,7 @@
 <svelte:head><title>{name.freq} {name.call} · Normal Radio</title></svelte:head>
 
 <main>
+	<div class="cabinet">
 	<div class="radio">
 		<div class="top">
 			<div class="grille"></div>
@@ -179,16 +180,26 @@
 	</div>
 
 	<Stations {stations} current={freq} onTune={tune} />
+	</div>
 </main>
 
 <style>
-	main { max-width: 1360px; margin: 0 auto; padding: 24px 16px 60px; display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 22px; align-items: start; }
-	@media (max-width: 1040px) { main { grid-template-columns: 1fr; max-width: 780px; } }
+	main { max-width: 1400px; margin: 0 auto; padding: 28px 16px 60px; }
+	@media (max-width: 1040px) { main { max-width: 780px; } }
+
+	/* one cabinet: the control face on the left, the station selector on the right, both the same height */
+	.cabinet {
+		display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr); gap: 18px; padding: 22px; border-radius: 36px;
+		background-color: #1c1714;
+		background-image: repeating-radial-gradient(circle at 20% 10%, rgba(255, 255, 255, 0.03) 0 1.5px, transparent 1.5px 4px), linear-gradient(180deg, #2c2520, #16120f);
+		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 0 0 5px #0b0907, inset 0 0 0 6px rgba(255, 255, 255, 0.22), inset 0 0 0 8px #0b0907, 0 40px 80px rgba(0, 0, 0, 0.7), 0 4px 10px rgba(0, 0, 0, 0.6);
+	}
+	@media (max-width: 1040px) { .cabinet { grid-template-columns: 1fr; } }
 
 	.radio {
-		border-radius: 26px; padding: 22px;
+		border-radius: 22px; padding: 22px;
 		background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.07) 0 1px, rgba(0, 0, 0, 0.06) 1px 2px), linear-gradient(180deg, #dedede 0%, #bdbdbd 28%, #9d9d9d 62%, #c7c7c7 100%);
-		box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.85), inset 0 -3px 0 rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 30px 60px rgba(0, 0, 0, 0.65), 0 3px 6px rgba(0, 0, 0, 0.5);
+		box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.85), inset 0 -3px 0 rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.6);
 	}
 	.top { display: grid; grid-template-columns: 70px 1fr 70px; gap: 16px; margin-bottom: 18px; }
 	.grille { border-radius: 12px; background-color: #6f6f6f; background-image: radial-gradient(circle at center, #171717 0 1.7px, transparent 2.1px); background-size: 7px 7px; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.7), inset 0 0 0 1px #333, 0 1px 0 rgba(255, 255, 255, 0.6); }
@@ -227,14 +238,15 @@
 	.drawer { margin-top: 18px; }
 
 	@media (max-width: 640px) {
-		main { padding: 10px 8px 40px; gap: 14px; }
+		main { padding: 10px 8px 40px; }
+		.cabinet { gap: 10px; padding: 12px; border-radius: 24px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08), inset 0 0 0 3px #0b0907, inset 0 0 0 4px rgba(255, 255, 255, 0.22), inset 0 0 0 5px #0b0907, 0 20px 40px rgba(0, 0, 0, 0.7); }
 		.top { grid-template-columns: 1fr; margin-bottom: 12px; }
 		.grille { display: none; }
 		.display { padding: 10px 12px; min-height: 0; }
 		.controls { grid-template-columns: 1fr auto; gap: 12px 16px; margin-top: 14px; }
 		.vu { max-width: 170px; }
 		.buttons { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
-		.radio { padding: 12px; border-radius: 18px; }
+		.radio { padding: 12px; border-radius: 16px; }
 		.big { font-size: 30px; }
 		.row3 { white-space: normal; }
 	}

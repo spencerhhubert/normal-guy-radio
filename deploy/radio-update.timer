@@ -1,0 +1,9 @@
+[Unit]
+Description=Normal Guy Radio release check every three minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=3min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,6 @@
+[Unit]
+Description=Normal Guy Radio release check
+
+[Service]
+Type=oneshot
+ExecStart=/srv/radio/update.sh

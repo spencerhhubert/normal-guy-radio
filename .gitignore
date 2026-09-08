@@ -1,4 +1,8 @@
+agent-notes.local/
 renders/
 .DS_Store
 node_modules/
-.vercel
+web/build/
+web/.svelte-kit/
+server/radiod
+*.wav

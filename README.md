@@ -1,39 +1,39 @@
 # Normal Guy Radio
 
-An endless, always-changing stream of 2000s family-comedy film-score music. Funk rhythm section
-(finger bass, muted guitar, drums, shaker, triangle, wurly, rock organ with slides) under a whistled
-tune, with french horns, strings, harp glissandi, choir, and clarinet/bassoon/tuba for the goofy bits.
+An FM band of stations that all play 2000s family-comedy film score, composed live in the browser
+and never repeating. Funk rhythm section, whistle, french horns, strings, harp glissandi, choir, and
+clarinet, bassoon and tuba for the goofy bits.
 
-Live at [normal-guy-radio.vercel.app](https://normal-guy-radio.vercel.app) (`vercel deploy --prod` from the
-repo root redeploys). Or open `index.html` in a browser and press play. Nothing is streamed; everything is composed and played
-in the page. Space toggles play, "skip" jumps to the next cue, and the seed box makes a run
-reproducible (the same seed always plays the same music).
+Every station's music is a pure function of its frequency and the clock. Tuning in computes what the
+station is playing right now and joins mid-cue, so everyone on a station hears the same thing at the
+same moment, and nothing has to run while nobody is listening. A small server keeps track of who is
+tuned where so occupied stations light up on the dial.
 
-## How it works
+## Layout
 
-- `composer.js` writes the music one bar at a time, forever. It builds "cues" (60 to 110 seconds each)
-  with their own key, tempo (94 to 108 bpm), chord progression, melody instrument, groove patterns,
-  intro style and section plan (intro, groove, A, build, B, breakdown, climax, outro), then hands off
-  to the next cue with a stop-and-harp-gliss, a drum fill, or an organ slide. Melodies are phrase-based
-  (A A' B A'') with chord tones on strong beats, mostly stepwise motion, scoops and grace notes.
-- `engine.js` plays the events with the Web Audio API: sampled General MIDI instruments (looped at
-  their steady state for long notes, crossfaded so the loop is inaudible), synthesized
-  kick/snare/hats/shaker/triangle/crash, a convolution reverb with a generated impulse, and a glue
-  compressor with a soft clipper on the master.
-- `samples/` is a trimmed subset of the MusyngKite soundfont renders from
-  [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) (MIT): one mp3 per
-  semitone in each instrument's useful register (every other semitone for pads and chord
-  instruments), wrapped in JS so the page works from `file://`. `tools/trim-samples.py` rebuilds them.
+- `web/` SvelteKit site. `src/lib/composer.js` writes the music one bar at a time; `src/lib/engine.js`
+  plays it with the Web Audio API (sampled instruments, synthesized percussion, reverb, glue
+  compression). `static/samples/` is a trimmed subset of the MusyngKite renders from
+  [gleitz/midi-js-soundfonts](https://github.com/gleitz/midi-js-soundfonts) (MIT).
+- `server/` Go service: listener presence, server clock, and the built site. Generated from
+  `api/openapi.yaml` with oapi-codegen; the site's client types come from the same spec.
+- `deploy/` systemd units and an updater that installs the latest GitHub release.
+- `tools/` the analysis loop that compared renders against the reference clip while the style was
+  being tuned.
 
-## Dev loop
+## Develop
 
-The reference clip was characterized with librosa (tempo, key, band energies, spectral centroid,
-onset density, harmonic-to-percussive energy ratio, loudness curve). A render is compared against those
-numbers, and a spectrogram is drawn next to the reference. Renders are offline, so nothing plays.
+    cd server && go run . -dev -web ../web/build   # API on :8811, serves web/build, accepts /dev/render
+    cd web && npm install && npm run dev            # site on :5179, proxies /api to :8811
+    cd web && npm test                              # composer checks
+    cd server && go test ./...
 
-    python tools/harness.py                        # serves the repo on :5179 and accepts rendered wavs
-    open "http://127.0.0.1:5179/?render=90&seed=3" # renders offline, posts renders/seed3-90s.wav
-    python tools/analyze.py renders/seed3-90s.wav  # feature comparison against the reference numbers
-    python tools/spectro.py out.png renders/ref.wav renders/seed3-90s.wav
-    node tools/test-composer.js 3 400              # structural checks on the composer alone
-    node tools/test-player.js                      # the live lookahead scheduler against a fake clock
+Changing `api/openapi.yaml`: `cd server && go generate ./...` and `cd web && npm run api`.
+
+## Release
+
+    scripts/release.sh 0.2.0
+
+The tag triggers the release workflow, which builds the site and the Linux binary and publishes them
+as release assets. A host installed with `deploy/install.sh` checks for a new release every three
+minutes and swaps itself over.

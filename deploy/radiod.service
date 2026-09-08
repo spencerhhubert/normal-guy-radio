@@ -1,0 +1,20 @@
+[Unit]
+Description=Normal Guy Radio
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=radio
+Group=radio
+WorkingDirectory=/srv/radio
+ExecStart=/srv/radio/radiod -addr 127.0.0.1:8811 -web /srv/radio/web -data /srv/radio/data
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/srv/radio/data
+
+[Install]
+WantedBy=multi-user.target

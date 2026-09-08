@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: Normal Guy Radio
+  version: 1.0.0
+servers:
+  - url: /api
+paths:
+  /now:
+    get:
+      operationId: getNow
+      summary: Server clock, so every listener computes the same station position.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Now" }
+  /stations:
+    get:
+      operationId: listStations
+      summary: Stations that have or recently had listeners.
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StationList" }
+  /listen:
+    post:
+      operationId: listen
+      summary: Heartbeat from a listener tuned to a station. Send every 20 seconds while playing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Listen" }
+      responses:
+        "200":
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Station" }
+        "400":
+          description: bad station or listener id
+  /version:
+    get:
+      operationId: getVersion
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version]
+                properties:
+                  version: { type: string }
+components:
+  schemas:
+    Now:
+      type: object
+      required: [now, epoch, segment]
+      properties:
+        now: { type: integer, format: int64, description: unix milliseconds }
+        epoch: { type: integer, format: int64, description: unix seconds all station timelines start from }
+        segment: { type: integer, description: seconds per timeline segment }
+    Station:
+      type: object
+      required: [id, listeners, lastHeard]
+      properties:
+        id: { type: integer, description: FM frequency in tenths of a MHz, 875 to 1080 }
+        listeners: { type: integer }
+        lastHeard: { type: integer, format: int64, description: unix seconds of the last heartbeat }
+    StationList:
+      type: object
+      required: [stations, listeners]
+      properties:
+        stations:
+          type: array
+          items: { $ref: "#/components/schemas/Station" }
+        listeners: { type: integer, description: everyone listening right now }
+    Listen:
+      type: object
+      required: [station, listener]
+      properties:
+        station: { type: integer, minimum: 875, maximum: 1080 }
+        listener: { type: string, minLength: 8, maxLength: 64 }

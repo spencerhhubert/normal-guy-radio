@@ -1,0 +1,37 @@
+package main
+
+import (
+	"context"
+	"time"
+
+	"github.com/spencerhhubert/normal-guy-radio/server/api"
+)
+
+// Station timelines are a function of the clock; these must match the composer.
+const (
+	Epoch   = 1788825600
+	Segment = 1200
+)
+
+type Server struct{ p *Presence }
+
+func (s *Server) GetNow(ctx context.Context, _ api.GetNowRequestObject) (api.GetNowResponseObject, error) {
+	return api.GetNow200JSONResponse{Now: time.Now().UnixMilli(), Epoch: Epoch, Segment: Segment}, nil
+}
+
+func (s *Server) ListStations(ctx context.Context, _ api.ListStationsRequestObject) (api.ListStationsResponseObject, error) {
+	stations, total := s.p.Stations(time.Now())
+	return api.ListStations200JSONResponse{Stations: stations, Listeners: total}, nil
+}
+
+func (s *Server) Listen(ctx context.Context, req api.ListenRequestObject) (api.ListenResponseObject, error) {
+	b := req.Body
+	if b == nil || b.Station < MinStation || b.Station > MaxStation || len(b.Listener) < 8 || len(b.Listener) > 64 {
+		return api.Listen400Response{}, nil
+	}
+	return api.Listen200JSONResponse(s.p.Touch(b.Station, b.Listener, time.Now())), nil
+}
+
+func (s *Server) GetVersion(ctx context.Context, _ api.GetVersionRequestObject) (api.GetVersionResponseObject, error) {
+	return api.GetVersion200JSONResponse{Version: version}, nil
+}

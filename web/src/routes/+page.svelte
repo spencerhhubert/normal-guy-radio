@@ -15,7 +15,8 @@
 	const LO = 875, HI = 1080;
 
 	let freq = $state(1013);
-	let power = $state(false);
+	let power = $state(true);
+	let playing = $state(false);
 	let loading = $state('');
 	let engine = $state<Engine | null>(null);
 	let stations = $state<Station[]>([]);
@@ -24,7 +25,7 @@
 	let now = $state<{ cue: string; section: string; chord: string } | null>(null);
 	let level = $state(0);
 	let mixerOpen = $state(false);
-	let clockOffset = 0, player: Player | null = null, retune = 0, heartbeat = 0, ready: Promise<void>;
+	let clockOffset = 0, player: Player | null = null, retune = 0, starting = false, ready: Promise<void>;
 	const listenerId = (() => { try { const k = 'ngr.listener'; let v = localStorage.getItem(k); if (!v) { v = crypto.randomUUID(); localStorage.setItem(k, v); } return v; } catch { return crypto.randomUUID(); } })();
 
 	const name = $derived(stationName(freq));
@@ -42,7 +43,7 @@
 		if (data) { stations = data.stations; totalListeners = data.listeners; here = data.stations.find((s) => s.id === freq)?.listeners ?? (power ? 1 : 0); }
 	}
 	async function beat() {
-		if (!power) return;
+		if (!playing) return;
 		const { data } = await api.POST('/listen', { body: { station: freq, listener: listenerId } });
 		if (data) here = data.listeners;
 	}
@@ -60,41 +61,54 @@
 		})();
 		return ready;
 	}
+	// browsers only let audio start after the person has touched the page; until then we sit armed
 	async function tuneIn() {
-		await prepare();
-		if (!engine || !power) return;
-		await engine.ctx.resume();
-		player?.stop();
-		player = new Player(engine, (bar) => { now = bar.silent ? null : { cue: `${bar.cue.keyName} · ${bar.cue.prog} · ${bar.tempo} bpm · ${bar.cue.flavor}`, section: `${bar.section.name} ${bar.section.index + 1}/${bar.section.bars} · ${bar.cue.melodyInst.replace(/_/g, ' ')}`, chord: bar.chord }; });
-		player.start(createStation(freq), stationTime);
-		beat();
+		if (starting) return;
+		starting = true;
+		try {
+			await prepare();
+			if (!engine || !power) return;
+			if (engine.ctx.state !== 'running') await Promise.race([engine.ctx.resume(), new Promise((r) => setTimeout(r, 300))]);
+			if (engine.ctx.state !== 'running') return;
+			player?.stop();
+			player = new Player(engine, (bar) => { now = bar.silent ? null : { cue: `${bar.cue.keyName} · ${bar.cue.prog} · ${bar.tempo} bpm · ${bar.cue.flavor}`, section: `${bar.section.name} ${bar.section.index + 1}/${bar.section.bars} · ${bar.cue.melodyInst.replace(/_/g, ' ')}`, chord: bar.chord }; });
+			player.start(createStation(freq), stationTime);
+			playing = true;
+			beat();
+		} finally { starting = false; }
 	}
+	function stop() { player?.stop(); player = null; playing = false; now = null; }
 	function tune(id: number) {
 		id = Math.min(HI, Math.max(LO, id));
 		if (id === freq) return;
 		freq = id; now = null; here = onair.get(id) ?? 0;
 		history.replaceState(null, '', `?fm=${(id / 10).toFixed(1)}`);
-		if (!power || !engine) return;
-		player?.stop(); player = null;
+		if (!playing || !engine) return;
+		stop();
 		engine.static_(engine.ctx.currentTime + 0.02, 0.35, 0.18);
 		clearTimeout(retune); retune = setTimeout(tuneIn, 380);
 	}
-	async function toggle() {
+	function toggle() {
 		power = !power;
-		if (power) { await tuneIn(); heartbeat = setInterval(beat, 20000); }
-		else { clearInterval(heartbeat); player?.stop(); player = null; now = null; here = Math.max(0, here - 1); }
+		if (power) tuneIn();
+		else { clearTimeout(retune); stop(); here = Math.max(0, here - 1); }
+	}
+	function kick(e: Event) {
+		if ((e.target as HTMLElement).closest?.('.power')) return;
+		if (power && !playing) tuneIn();
 	}
 
 	onMount(() => {
 		const fm = parseFloat(new URLSearchParams(location.search).get('fm') || '');
 		if (fm) freq = Math.min(HI, Math.max(LO, Math.round(fm * 10)));
-		syncClock(); refresh();
-		const timers = [setInterval(refresh, 10000), setInterval(syncClock, 300000)];
+		syncClock(); refresh(); tuneIn();
+		const timers = [setInterval(refresh, 10000), setInterval(syncClock, 300000), setInterval(beat, 20000)];
+		window.addEventListener('click', kick); window.addEventListener('keydown', kick);
 		const buf = new Uint8Array(512);
 		let raf = 0;
 		const draw = () => {
 			raf = requestAnimationFrame(draw);
-			if (!engine || !power) { level *= 0.9; return; }
+			if (!engine || !playing) { level *= 0.9; return; }
 			engine.analyser.getByteTimeDomainData(buf);
 			let s = 0; for (let i = 0; i < buf.length; i++) { const x = (buf[i] - 128) / 128; s += x * x; }
 			level = level * 0.7 + Math.min(1, Math.sqrt(s / buf.length) * 4) * 0.3;
@@ -107,18 +121,13 @@
 			if (e.key === 'ArrowRight') tune(freq + 1);
 		};
 		window.addEventListener('keydown', keys);
-		return () => { timers.forEach(clearInterval); cancelAnimationFrame(raf); window.removeEventListener('keydown', keys); };
+		return () => { timers.forEach(clearInterval); cancelAnimationFrame(raf); window.removeEventListener('keydown', keys); window.removeEventListener('click', kick); window.removeEventListener('keydown', kick); };
 	});
 </script>
 
 <svelte:head><title>{name.freq} {name.call} · Normal Guy Radio</title></svelte:head>
 
 <main>
-	<header>
-		<h1>Normal Guy Radio</h1>
-		<p>a completely normal guy's life is about to get way more complicated. on every station. forever.</p>
-	</header>
-
 	<div class="radio">
 		<div class="top">
 			<div class="grille"></div>
@@ -128,6 +137,7 @@
 				<div class="row3">
 					{#if loading}{loading}
 					{:else if now}{now.cue} · {now.section} · <b>{now.chord}</b>
+					{:else if power && engine && !playing}tap anywhere to start
 					{:else if power}tuning…
 					{:else}{totalListeners} {totalListeners === 1 ? 'person' : 'people'} listening across the band{/if}
 				</div>
@@ -140,7 +150,7 @@
 		<div class="controls">
 			<div class="vu"><VuMeter {level} /></div>
 			<div class="buttons">
-				<button class="btn power" class:on={power} onclick={toggle} aria-pressed={power}><i class="led"></i>Power</button>
+				<button class="btn power" class:on={power} class:live={playing} onclick={toggle} aria-pressed={power}><i class="led"></i>Power</button>
 				<button class="btn" class:on={mixerOpen} onclick={() => (mixerOpen = !mixerOpen)} aria-pressed={mixerOpen}>Mixer</button>
 			</div>
 			<div class="tuner"><Knob value={freq} onStep={(d) => tune(freq + d)} /><span class="plate">TUNE</span></div>
@@ -150,15 +160,10 @@
 	</div>
 
 	<Stations {stations} current={freq} onTune={tune} />
-
-	<footer>Every station is composed live in your browser from its frequency and the clock, so everyone on a station hears the same thing. Nothing is recorded.</footer>
 </main>
 
 <style>
 	main { max-width: 780px; margin: 0 auto; padding: 28px 16px 60px; }
-	header { text-align: center; margin-bottom: 22px; }
-	h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: 0.02em; color: #f1e7d3; text-shadow: 0 1px 0 #000, 0 2px 8px rgba(0, 0, 0, 0.6); }
-	header p { margin: 6px 0 0; color: #a2937a; font-style: italic; font-size: 14px; }
 
 	.radio {
 		border-radius: 26px; padding: 22px;
@@ -195,11 +200,11 @@
 	}
 	.btn:active, .btn.on { background: linear-gradient(180deg, #c8c8c8, #e6e6e6); box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.6); }
 	.led { width: 10px; height: 10px; border-radius: 50%; background: radial-gradient(circle at 40% 35%, #7a7a7a, #303030); box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4); }
-	.power.on .led { background: radial-gradient(circle at 40% 35%, #b9ffcf, #12b04c); box-shadow: 0 0 10px rgba(40, 220, 100, 0.9); }
+	.power.on .led { background: radial-gradient(circle at 40% 35%, #ffe2a8, #d98a00); box-shadow: 0 0 8px rgba(255, 170, 40, 0.8); }
+	.power.live .led { background: radial-gradient(circle at 40% 35%, #b9ffcf, #12b04c); box-shadow: 0 0 10px rgba(40, 220, 100, 0.9); }
 	.tuner { display: grid; justify-items: center; gap: 8px; }
 	.plate { font-size: 10px; letter-spacing: 0.3em; color: #4a4a4a; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7); }
 	.drawer { margin-top: 18px; }
-	footer { margin-top: 26px; text-align: center; color: #7d705d; font-size: 12px; }
 
 	@media (max-width: 640px) {
 		.top { grid-template-columns: 1fr; }

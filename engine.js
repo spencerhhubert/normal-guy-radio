@@ -11,23 +11,23 @@
   // gain: mix level. norm: brings the sample set to a common loudness (measured per instrument).
   // sustain: loop the sample's steady state for long notes. send: reverb send. lp: lowpass Hz.
   const INSTRUMENTS = {
-    whistle:               { gain: -4,  norm: 1,  sustain: true,  attack: 0.025, release: 0.12, send: 0.32, pan: 0.05,  lp: 9000 },
+    whistle:               { gain: -5,  norm: 1,  sustain: true,  attack: 0.025, release: 0.12, send: 0.32, pan: 0.05,  lp: 9000 },
     french_horn:           { gain: -6,  norm: 5,  sustain: true,  attack: 0.06,  release: 0.25, send: 0.42, pan: -0.2 },
-    string_ensemble_1:     { gain: -7,  norm: -3, sustain: true,  attack: 0.12,  release: 0.5,  send: 0.45, pan: 0.15 },
+    string_ensemble_1:     { gain: -9,  norm: -3, sustain: true,  attack: 0.12,  release: 0.5,  send: 0.45, pan: 0.15 },
     choir_aahs:            { gain: -7,  norm: 5,  sustain: true,  attack: 0.35,  release: 0.7,  send: 0.5,  pan: 0 },
-    rock_organ:            { gain: -12, norm: -2, sustain: true,  attack: 0.006, release: 0.06, send: 0.15, pan: -0.25 },
+    rock_organ:            { gain: -14, norm: -2, sustain: true,  attack: 0.006, release: 0.06, send: 0.15, pan: -0.25 },
     clarinet:              { gain: -6,  norm: 0,  sustain: true,  attack: 0.03,  release: 0.1,  send: 0.3,  pan: 0.2 },
     bassoon:               { gain: -5,  norm: 5,  sustain: true,  attack: 0.03,  release: 0.08, send: 0.25, pan: -0.15 },
     tuba:                  { gain: -8,  norm: -3, sustain: true,  attack: 0.03,  release: 0.08, send: 0.2,  pan: 0 },
     muted_trumpet:         { gain: -6,  norm: 5,  sustain: true,  attack: 0.03,  release: 0.12, send: 0.3,  pan: 0.1 },
-    electric_bass_finger:  { gain: -1,  norm: -8, sustain: false, attack: 0.003, release: 0.05, send: 0.02, pan: 0,     lp: 2200 },
-    electric_guitar_muted: { gain: -9,  norm: 6,  sustain: false, attack: 0.002, release: 0.1, send: 0.12, pan: 0.3 },
-    electric_piano_1:      { gain: -10, norm: -4, sustain: false, attack: 0.003, release: 0.25, send: 0.2,  pan: -0.1 },
+    electric_bass_finger:  { gain: 1,   norm: -8, sustain: false, attack: 0.003, release: 0.05, send: 0.02, pan: 0,     lp: 2200 },
+    electric_guitar_muted: { gain: -10, norm: 6,  sustain: false, attack: 0.002, release: 0.1, send: 0.12, pan: 0.3 },
+    electric_piano_1:      { gain: -12, norm: -4, sustain: false, attack: 0.003, release: 0.25, send: 0.2,  pan: -0.1 },
     orchestral_harp:       { gain: -7,  norm: 6,  sustain: false, attack: 0.003, release: 0.5,  send: 0.42, pan: 0.25 },
     pizzicato_strings:     { gain: -7,  norm: -2, sustain: false, attack: 0.003, release: 0.15, send: 0.3,  pan: -0.2 },
     glockenspiel:          { gain: -11, norm: 5,  sustain: false, attack: 0.002, release: 0.7,  send: 0.4,  pan: 0.2 },
   };
-  const DRUMS = { kick: { gain: -15, send: 0.05, pan: 0 }, snare: { gain: -19, send: 0.25, pan: 0.05 }, hat: { gain: -25, send: 0.08, pan: -0.15 }, shaker: { gain: -25, send: 0.1, pan: 0.25 }, triangle: { gain: -24, send: 0.35, pan: -0.3 }, crash: { gain: -21, send: 0.3, pan: 0.1 } };
+  const DRUMS = { kick: { gain: -17, send: 0.05, pan: 0 }, snare: { gain: -22, send: 0.25, pan: 0.05 }, hat: { gain: -25, send: 0.08, pan: -0.15 }, shaker: { gain: -25, send: 0.1, pan: 0.25 }, triangle: { gain: -24, send: 0.35, pan: -0.3 }, crash: { gain: -21, send: 0.3, pan: 0.1 } };
   const CACHE = {};
   const LOOP = { start: 1.0, end: 2.9, fade: 0.25 }; // seconds; the mp3 renders are 3.16 s with a flat steady state
 

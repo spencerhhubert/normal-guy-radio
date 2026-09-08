@@ -117,6 +117,7 @@
     }
     function newPlayer() { player = new window.Engine.Player(engine, radio, onBar); }
     newPlayer();
+    window.__ngr = { ctx, engine, get player() { return player; }, get radio() { return radio; } }; // for the dev loop
     $('play').onclick = async () => {
       if (!playing) { await ctx.resume(); player.start(); playing = true; $('play').innerHTML = '&#10074;&#10074;'; }
       else { player.stop(); playing = false; $('play').innerHTML = '&#9654;'; $('sub').textContent = 'paused'; }

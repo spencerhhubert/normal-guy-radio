@@ -235,7 +235,7 @@
 
   // ---- live player ----
   class Player {
-    constructor(engine, radio, onBar) { this.engine = engine; this.radio = radio; this.onBar = onBar; this.timer = null; this.nextTime = 0; }
+    constructor(engine, radio, onBar) { this.engine = engine; this.radio = radio; this.onBar = onBar; this.timer = null; this.nextTime = 0; this.pending = new Set(); }
     start() {
       const ctx = this.engine.ctx; this.nextTime = ctx.currentTime + 0.15;
       this.engine.master.gain.cancelScheduledValues(ctx.currentTime); this.engine.master.gain.setValueAtTime(0.0001, ctx.currentTime); this.engine.master.gain.linearRampToValueAtTime(0.9, ctx.currentTime + 0.3);
@@ -246,12 +246,13 @@
       while (this.nextTime < ctx.currentTime + 0.7) {
         const bar = this.radio.nextBar(); const at = this.nextTime;
         this.engine.scheduleBar(bar, at);
-        if (this.onBar) setTimeout(() => this.onBar(bar), Math.max(0, (at - ctx.currentTime) * 1000));
+        if (this.onBar) { const id = setTimeout(() => { this.pending.delete(id); this.onBar(bar); }, Math.max(0, (at - ctx.currentTime) * 1000)); this.pending.add(id); }
         this.nextTime += 4 * 60 / bar.tempo;
       }
     }
     stop() {
       clearInterval(this.timer); this.timer = null;
+      for (const id of this.pending) clearTimeout(id); this.pending.clear();
       const ctx = this.engine.ctx, g = this.engine.master.gain;
       g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(g.value, ctx.currentTime); g.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
       setTimeout(() => this.engine.panic(), 300);

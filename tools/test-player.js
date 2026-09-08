@@ -2,7 +2,7 @@
 // Checks the lookahead scheduler keeps 0.7 s of music queued, bars are contiguous, and skip re-seeds cleanly.
 const fs = require('fs'), vm = require('vm');
 const C = require('../composer.js');
-const ctx = { Composer: C, setInterval, clearInterval, setTimeout, console };
+const ctx = { Composer: C, setInterval, clearInterval, setTimeout, clearTimeout, console };
 ctx.window = ctx; vm.createContext(ctx);
 vm.runInContext(fs.readFileSync(__dirname + '/../engine.js', 'utf8'), ctx);
 const { Player } = ctx.Engine;

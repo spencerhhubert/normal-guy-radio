@@ -4,7 +4,8 @@ An endless, always-changing stream of 2000s family-comedy film-score music. Funk
 (finger bass, muted guitar, drums, shaker, triangle, wurly, rock organ with slides) under a whistled
 tune, with french horns, strings, harp glissandi, choir, and clarinet/bassoon/tuba for the goofy bits.
 
-Open `index.html` in a browser and press play. Nothing is streamed; everything is composed and played
+Live at [normal-guy-radio.vercel.app](https://normal-guy-radio.vercel.app) (`vercel deploy --prod` from the
+repo root redeploys). Or open `index.html` in a browser and press play. Nothing is streamed; everything is composed and played
 in the page. Space toggles play, "skip" jumps to the next cue, and the seed box makes a run
 reproducible (the same seed always plays the same music).
 

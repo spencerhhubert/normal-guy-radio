@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "normal-guy-radio", "runtimeExecutable": "/opt/homebrew/opt/python@3.11/libexec/bin/python", "runtimeArgs": ["tools/harness.py", "5179"], "port": 5179 }
+  ]
+}

@@ -47,7 +47,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25. */
+        /** Heartbeat from a tab tuned to a station. Send every 10 seconds while playing; a tab expires after 25. */
         post: operations["listen"];
         delete?: never;
         options?: never;
@@ -64,7 +64,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** The listener stopped or left the page; drop them from the counts right away. */
+        /** The tab stopped or closed; drop it from the counts right away. */
         post: operations["leave"];
         delete?: never;
         options?: never;
@@ -106,19 +106,31 @@ export interface components {
             /** @description seconds per timeline segment */
             segment: number;
         };
+        Person: {
+            /** @description derived from the id a browser keeps */
+            name: string;
+            emoji: string;
+        };
         Station: {
             /** @description FM frequency in tenths of a MHz */
             id: number;
+            /** @description people tuned in */
             listeners: number;
             /**
              * Format: int64
              * @description unix seconds of the last heartbeat
              */
             lastHeard: number;
+            /** @description who is tuned in, in the order they arrived */
+            people: components["schemas"]["Person"][];
+        };
+        Listening: {
+            station: components["schemas"]["Station"];
+            you: components["schemas"]["Person"];
         };
         StationList: {
             stations: components["schemas"]["Station"][];
-            /** @description everyone listening right now */
+            /** @description people listening right now across the band */
             listeners: number;
         };
         Leave: {
@@ -126,7 +138,10 @@ export interface components {
         };
         Listen: {
             station: number;
+            /** @description this tab */
             listener: string;
+            /** @description this browser */
+            person: string;
         };
     };
     responses: never;
@@ -193,10 +208,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Station"];
+                    "application/json": components["schemas"]["Listening"];
                 };
             };
-            /** @description bad station or listener id */
+            /** @description bad station or ids */
             400: {
                 headers: {
                     [name: string]: unknown;

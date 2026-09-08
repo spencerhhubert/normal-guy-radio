@@ -26,7 +26,7 @@ paths:
   /listen:
     post:
       operationId: listen
-      summary: Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25.
+      summary: Heartbeat from a tab tuned to a station. Send every 10 seconds while playing; a tab expires after 25.
       requestBody:
         required: true
         content:
@@ -36,13 +36,13 @@ paths:
         "200":
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/Station" }
+              schema: { $ref: "#/components/schemas/Listening" }
         "400":
-          description: bad station or listener id
+          description: bad station or ids
   /leave:
     post:
       operationId: leave
-      summary: The listener stopped or left the page; drop them from the counts right away.
+      summary: The tab stopped or closed; drop it from the counts right away.
       requestBody:
         required: true
         content:
@@ -72,13 +72,29 @@ components:
         now: { type: integer, format: int64, description: unix milliseconds }
         epoch: { type: integer, format: int64, description: unix seconds all station timelines start from }
         segment: { type: integer, description: seconds per timeline segment }
+    Person:
+      type: object
+      required: [name, emoji]
+      properties:
+        name: { type: string, description: derived from the id a browser keeps, so it is the same tomorrow }
+        emoji: { type: string }
     Station:
       type: object
-      required: [id, listeners, lastHeard]
+      required: [id, listeners, lastHeard, people]
       properties:
         id: { type: integer, description: FM frequency in tenths of a MHz, 875 to 1080 }
-        listeners: { type: integer }
+        listeners: { type: integer, description: people tuned in, each counted once however many tabs they have open }
         lastHeard: { type: integer, format: int64, description: unix seconds of the last heartbeat }
+        people:
+          type: array
+          description: who is tuned in, in the order they arrived
+          items: { $ref: "#/components/schemas/Person" }
+    Listening:
+      type: object
+      required: [station, you]
+      properties:
+        station: { $ref: "#/components/schemas/Station" }
+        you: { $ref: "#/components/schemas/Person" }
     StationList:
       type: object
       required: [stations, listeners]
@@ -86,7 +102,7 @@ components:
         stations:
           type: array
           items: { $ref: "#/components/schemas/Station" }
-        listeners: { type: integer, description: everyone listening right now }
+        listeners: { type: integer, description: people listening right now across the band }
     Leave:
       type: object
       required: [listener]
@@ -94,7 +110,8 @@ components:
         listener: { type: string, minLength: 8, maxLength: 64 }
     Listen:
       type: object
-      required: [station, listener]
+      required: [station, listener, person]
       properties:
         station: { type: integer, minimum: 875, maximum: 1080 }
-        listener: { type: string, minLength: 8, maxLength: 64 }
+        listener: { type: string, minLength: 8, maxLength: 64, description: this tab }
+        person: { type: string, minLength: 8, maxLength: 64, description: this browser, kept across visits }

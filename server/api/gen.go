@@ -20,8 +20,18 @@ type Leave struct {
 
 // Listen defines model for Listen.
 type Listen struct {
+	// Listener this tab
 	Listener string `json:"listener"`
-	Station  int    `json:"station"`
+
+	// Person this browser
+	Person  string `json:"person"`
+	Station int    `json:"station"`
+}
+
+// Listening defines model for Listening.
+type Listening struct {
+	Station Station `json:"station"`
+	You     Person  `json:"you"`
 }
 
 // Now defines model for Now.
@@ -36,6 +46,14 @@ type Now struct {
 	Segment int `json:"segment"`
 }
 
+// Person defines model for Person.
+type Person struct {
+	Emoji string `json:"emoji"`
+
+	// Name derived from the id a browser keeps
+	Name string `json:"name"`
+}
+
 // Station defines model for Station.
 type Station struct {
 	// Id FM frequency in tenths of a MHz
@@ -43,12 +61,17 @@ type Station struct {
 
 	// LastHeard unix seconds of the last heartbeat
 	LastHeard int64 `json:"lastHeard"`
-	Listeners int   `json:"listeners"`
+
+	// Listeners people tuned in
+	Listeners int `json:"listeners"`
+
+	// People who is tuned in, in the order they arrived
+	People []Person `json:"people"`
 }
 
 // StationList defines model for StationList.
 type StationList struct {
-	// Listeners everyone listening right now
+	// Listeners people listening right now across the band
 	Listeners int       `json:"listeners"`
 	Stations  []Station `json:"stations"`
 }
@@ -61,10 +84,10 @@ type ListenJSONRequestBody = Listen
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Leave The listener stopped or left the page; drop them from the counts right away.
+	// Leave The tab stopped or closed; drop it from the counts right away.
 	// (POST /leave)
 	Leave(w http.ResponseWriter, r *http.Request)
-	// Listen Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25.
+	// Listen Heartbeat from a tab tuned to a station. Send every 10 seconds while playing; a tab expires after 25.
 	// (POST /listen)
 	Listen(w http.ResponseWriter, r *http.Request)
 	// GetNow Server clock, so every listener computes the same station position.
@@ -310,7 +333,7 @@ type ListenResponseObject interface {
 	VisitListenResponse(w http.ResponseWriter) error
 }
 
-type Listen200JSONResponse Station
+type Listen200JSONResponse Listening
 
 func (response Listen200JSONResponse) VisitListenResponse(w http.ResponseWriter) error {
 
@@ -399,10 +422,10 @@ func (response GetVersion200JSONResponse) VisitGetVersionResponse(w http.Respons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// Leave The listener stopped or left the page; drop them from the counts right away.
+	// Leave The tab stopped or closed; drop it from the counts right away.
 	// (POST /leave)
 	Leave(ctx context.Context, request LeaveRequestObject) (LeaveResponseObject, error)
-	// Listen Heartbeat from a listener tuned to a station. Send every 10 seconds while playing; a listener expires after 25.
+	// Listen Heartbeat from a tab tuned to a station. Send every 10 seconds while playing; a tab expires after 25.
 	// (POST /listen)
 	Listen(ctx context.Context, request ListenRequestObject) (ListenResponseObject, error)
 	// GetNow Server clock, so every listener computes the same station position.

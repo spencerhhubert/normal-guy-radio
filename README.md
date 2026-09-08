@@ -25,6 +25,9 @@ tuned where so occupied stations light up on the dial.
 
     cd server && go run . -dev -web ../web/build   # API on :8811, serves web/build, accepts /dev/render
     cd web && npm install && npm run dev            # site on :5179, proxies /api to :8811
+
+On localhost the site is silent by design: the meters, scope and display run but nothing reaches the
+speakers. Add `?sound=1` to hear it, or `?mute=1` to silence it anywhere.
     cd web && npm test                              # composer checks
     cd server && go test ./...
 

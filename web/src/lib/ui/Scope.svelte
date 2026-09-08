@@ -4,13 +4,13 @@
 	import { activity, fader, set, COLORS } from '../mix.svelte';
 	let { engine, playing }: { engine: { wave: (stem: string, out: Float32Array) => void } | null; playing: boolean } = $props();
 	let canvas: HTMLCanvasElement;
-	const stems = STEMS.map(([n]) => n).filter((n) => n !== 'reverb');
+	const stems = STEMS.map(([n]) => n), lanes = stems.filter((n) => n !== 'reverb');
 	const N = 1024, SPAN = (N * 3) / 4;
 
 	onMount(() => {
 		const g = canvas.getContext('2d')!, dpr = Math.min(2, devicePixelRatio || 1);
 		const bufs = Object.fromEntries(stems.map((s) => [s, new Float32Array(N)]));
-		const peak: Record<string, number> = {}, lane: Record<string, number> = {};
+		const peak: Record<string, number> = {}, ref: Record<string, number> = {}, loud: Record<string, number> = {}, lane: Record<string, number> = {};
 		const size = () => { canvas.width = Math.round(canvas.clientWidth * dpr); canvas.height = Math.round(canvas.clientHeight * dpr); };
 		const ro = new ResizeObserver(size); ro.observe(canvas); size();
 		let raf = 0;
@@ -27,11 +27,14 @@
 				let e = 0, p = 0;
 				for (let i = 0; i < N; i++) { const x = w[i], a = x < 0 ? -x : x; e += x * x; if (a > p) p = a; }
 				const rms = Math.sqrt(e / N);
-				activity[s] = (activity[s] ?? 0) * 0.6 + rms * 0.4;
+				loud[s] = (loud[s] ?? 0) * 0.6 + rms * 0.4;
 				peak[s] = Math.max(p, (peak[s] ?? 0) * 0.97, 0.02);
-				if (activity[s] > 0.002) live.push(s); else delete lane[s];
+				ref[s] = Math.max(p, (ref[s] ?? 0) * 0.995, 0.02);
+				activity[s] = (activity[s] ?? 0) * 0.5 + Math.min(1, (1.6 * rms) / ref[s]) * 0.5;
+				if (s !== 'reverb' && loud[s] > 0.002) live.push(s); else delete lane[s];
 			}
-			// one lane per sounding stem, stacked like a multi-channel scope; each trace is scaled to its own recent peak
+			// one lane per sounding stem, stacked like a multi-channel scope; each trace is scaled to its own recent peak,
+			// and the activity that lights the legend and the mixer is relative to the stem's own recent loudness
 			const n = live.length, amp = Math.min(0.3, 0.7 / Math.max(1, n)) * H;
 			g.globalCompositeOperation = 'lighter'; g.lineWidth = 1.4; g.lineJoin = 'round'; g.font = '700 10px "SF Mono", Menlo, Consolas, monospace';
 			live.forEach((s, i) => {
@@ -40,7 +43,7 @@
 				let t = 0; for (let k = 1; k < N - SPAN; k++) if (w[k - 1] < 0 && w[k] >= 0) { t = k; break; }
 				g.strokeStyle = g.fillStyle = g.shadowColor = COLORS[s];
 				g.globalAlpha = 0.55; g.shadowBlur = 0; g.fillText(s.toUpperCase(), 8, cy + 3.5);
-				g.globalAlpha = Math.min(0.95, 0.5 + activity[s] * 10); g.shadowBlur = 8;
+				g.globalAlpha = 0.5 + activity[s] * 0.45; g.shadowBlur = 8;
 				g.beginPath();
 				for (let k = 0; k < SPAN; k += 2) { const x = (k / (SPAN - 1)) * W, y = cy - Math.max(-1, Math.min(1, w[t + k] * gain)) * amp; k ? g.lineTo(x, y) : g.moveTo(x, y); }
 				g.stroke();
@@ -55,9 +58,9 @@
 	<canvas bind:this={canvas}></canvas>
 	<div class="glass"></div>
 	<div class="legend">
-		{#each stems as s}
+		{#each lanes as s}
 			{@const f = fader(s)}
-			<button style:color={COLORS[s]} style:opacity={f.mute ? 0.3 : 0.45 + 0.55 * Math.min(1, (activity[s] ?? 0) * 14)} class:muted={f.mute} onclick={() => set(s, { mute: !f.mute })} title={f.mute ? 'unmute' : 'mute'}>{s}</button>
+			<button style:color={COLORS[s]} style:opacity={f.mute ? 0.3 : 0.45 + 0.55 * (activity[s] ?? 0)} class:muted={f.mute} onclick={() => set(s, { mute: !f.mute })} title={f.mute ? 'unmute' : 'mute'}>{s}</button>
 		{/each}
 	</div>
 </div>

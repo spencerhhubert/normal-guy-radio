@@ -15,17 +15,21 @@ const (
 	ttl          = 25 * time.Second
 	recent       = 24 * time.Hour
 	maxListeners = 10000
+	maxPeople    = 24
 	MinStation   = 875
 	MaxStation   = 1080
 )
 
+// A listener is one open tab; the person behind it may have several, on the same station or not.
 type listener struct {
 	station int
+	person  string
+	since   time.Time
 	seen    time.Time
 }
 
-// Presence is who is tuned where. Listeners expire after ttl without a heartbeat; a station stays
-// listed for a day after its last listener so the dial shows where people have been.
+// Presence is who is tuned where. Tabs expire after ttl without a heartbeat; a station stays listed
+// for a day after its last listener so the dial shows where people have been.
 type Presence struct {
 	mu        sync.Mutex
 	path      string
@@ -38,16 +42,24 @@ func NewPresence(path string) *Presence {
 	return &Presence{path: path, listeners: map[string]listener{}, last: map[int]int64{}}
 }
 
-func (p *Presence) Touch(station int, id string, now time.Time) api.Station {
+func (p *Presence) Touch(station int, id, person string, now time.Time) api.Station {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.sweep(now)
-	if _, ok := p.listeners[id]; ok || len(p.listeners) < maxListeners {
-		p.listeners[id] = listener{station, now}
+	if l, ok := p.listeners[id]; ok {
+		p.listeners[id] = listener{station, person, l.since, now}
+	} else if len(p.listeners) < maxListeners {
+		p.listeners[id] = listener{station, person, now, now}
 	}
 	p.last[station] = now.Unix()
 	p.dirty = true
-	return api.Station{Id: station, Listeners: p.count(station), LastHeard: now.Unix()}
+	first := map[string]time.Time{}
+	for _, l := range p.listeners {
+		if l.station == station {
+			arrive(first, l)
+		}
+	}
+	return describe(station, now.Unix(), first)
 }
 
 func (p *Presence) Leave(id string) {
@@ -60,16 +72,16 @@ func (p *Presence) Stations(now time.Time) ([]api.Station, int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.sweep(now)
-	counts := map[int]int{}
+	arrivals, people := p.arrivals(), map[string]bool{}
 	for _, l := range p.listeners {
-		counts[l.station]++
+		people[l.person] = true
 	}
 	out := []api.Station{}
 	for st, heard := range p.last {
-		if counts[st] == 0 && now.Unix()-heard > int64(recent.Seconds()) {
+		if len(arrivals[st]) == 0 && now.Unix()-heard > int64(recent.Seconds()) {
 			continue
 		}
-		out = append(out, api.Station{Id: st, Listeners: counts[st], LastHeard: heard})
+		out = append(out, describe(st, heard, arrivals[st]))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Listeners != out[j].Listeners {
@@ -77,17 +89,46 @@ func (p *Presence) Stations(now time.Time) ([]api.Station, int) {
 		}
 		return out[i].LastHeard > out[j].LastHeard
 	})
-	return out, len(p.listeners)
+	return out, len(people)
 }
 
-func (p *Presence) count(station int) int {
-	n := 0
+// arrivals is, per station, when each person first showed up there.
+func (p *Presence) arrivals() map[int]map[string]time.Time {
+	out := map[int]map[string]time.Time{}
 	for _, l := range p.listeners {
-		if l.station == station {
-			n++
+		if out[l.station] == nil {
+			out[l.station] = map[string]time.Time{}
 		}
+		arrive(out[l.station], l)
 	}
-	return n
+	return out
+}
+
+func arrive(first map[string]time.Time, l listener) {
+	if t, ok := first[l.person]; !ok || l.since.Before(t) {
+		first[l.person] = l.since
+	}
+}
+
+func describe(station int, heard int64, first map[string]time.Time) api.Station {
+	ids := make([]string, 0, len(first))
+	for id := range first {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if !first[ids[i]].Equal(first[ids[j]]) {
+			return first[ids[i]].Before(first[ids[j]])
+		}
+		return ids[i] < ids[j]
+	})
+	people := make([]api.Person, 0, len(ids))
+	for _, id := range ids {
+		if len(people) == maxPeople {
+			break
+		}
+		people = append(people, Name(id))
+	}
+	return api.Station{Id: station, Listeners: len(ids), LastHeard: heard, People: people}
 }
 
 func (p *Presence) sweep(now time.Time) {

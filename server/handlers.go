@@ -26,11 +26,13 @@ func (s *Server) ListStations(ctx context.Context, _ api.ListStationsRequestObje
 
 func (s *Server) Listen(ctx context.Context, req api.ListenRequestObject) (api.ListenResponseObject, error) {
 	b := req.Body
-	if b == nil || b.Station < MinStation || b.Station > MaxStation || len(b.Listener) < 8 || len(b.Listener) > 64 {
+	if b == nil || b.Station < MinStation || b.Station > MaxStation || !idOK(b.Listener) || !idOK(b.Person) {
 		return api.Listen400Response{}, nil
 	}
-	return api.Listen200JSONResponse(s.p.Touch(b.Station, b.Listener, time.Now())), nil
+	return api.Listen200JSONResponse{Station: s.p.Touch(b.Station, b.Listener, b.Person, time.Now()), You: Name(b.Person)}, nil
 }
+
+func idOK(id string) bool { return len(id) >= 8 && len(id) <= 64 }
 
 func (s *Server) Leave(ctx context.Context, req api.LeaveRequestObject) (api.LeaveResponseObject, error) {
 	if req.Body != nil && len(req.Body.Listener) >= 8 {

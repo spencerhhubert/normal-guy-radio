@@ -12,9 +12,12 @@
 	import Scope from '$lib/ui/Scope.svelte';
 	import { attach, useStation, param } from '$lib/mix.svelte';
 	import Stations from '$lib/ui/Stations.svelte';
+	import People from '$lib/ui/People.svelte';
 
-	type Station = { id: number; listeners: number; lastHeard: number };
+	type Person = { name: string; emoji: string };
+	type Station = { id: number; listeners: number; lastHeard: number; people: Person[] };
 	const LO = 875, HI = 1080;
+	const SHORT: Record<string, string> = { electric_piano_1: 'wurly', string_ensemble_1: 'strings', rock_organ: 'organ', french_horn: 'horn', orchestral_harp: 'harp', glockenspiel: 'glock', muted_trumpet: 'muted trumpet' };
 
 	let freq = $state(1013);
 	let power = $state(true);
@@ -23,16 +26,22 @@
 	let engine = $state<Engine | null>(null);
 	let stations = $state<Station[]>([]);
 	let totalListeners = $state(0);
-	let here = $state(0);
+	let me = $state<Person | null>(null);
 	let now = $state<{ cue: string; section: string; chord: string } | null>(null);
 	let level = $state(0);
 	let mixerOpen = $state(false);
+	let silent = $state(false);
 	let clockOffset = 0, player: Player | null = null, retune = 0, starting = false, ready: Promise<void>;
-	const listenerId = (() => { try { const k = 'ngr.listener'; let v = sessionStorage.getItem(k); if (!v) { v = crypto.randomUUID(); sessionStorage.setItem(k, v); } return v; } catch { return crypto.randomUUID(); } })();
+	// a listener is this tab; a person is this browser, and their name follows them back tomorrow
+	const keep = (store: Storage, k: string) => { try { let v = store.getItem(k); if (!v) { v = crypto.randomUUID(); store.setItem(k, v); } return v; } catch { return crypto.randomUUID(); } };
+	const listenerId = keep(sessionStorage, 'ngr.listener'), personId = keep(localStorage, 'ngr.person');
 
 	const name = $derived(stationName(freq));
 	const onair = $derived(new Map(stations.filter((s) => s.listeners > 0).map((s) => [s.id, s.listeners])));
 	const recent = $derived(new Set(stations.filter((s) => s.listeners === 0).map((s) => s.id)));
+	const mine = $derived(stations.find((s) => s.id === freq));
+	const without = (s: Station) => (me && s.people.some((p) => p.name === me!.name) ? { ...s, listeners: Math.max(0, s.listeners - 1), people: s.people.filter((p) => p.name !== me!.name) } : s);
+	const withMe = (s: Station) => (me && !s.people.some((p) => p.name === me!.name) ? { ...s, listeners: s.listeners + 1, people: [...s.people, me] } : s);
 	const stationTime = () => (Date.now() + clockOffset) / 1000 - EPOCH;
 	const url = () => `?fm=${(freq / 10).toFixed(1)}` + (param() ? `&mix=${param()}` : '');
 
@@ -43,26 +52,31 @@
 	}
 	async function refresh() {
 		const { data } = await api.GET('/stations');
-		if (data) { stations = data.stations; totalListeners = data.listeners; here = data.stations.find((s) => s.id === freq)?.listeners ?? (power ? 1 : 0); }
+		if (data) { stations = data.stations; totalListeners = data.listeners; }
 	}
 	async function beat(station = freq) {
 		if (!power) return;
-		const { data } = await api.POST('/listen', { body: { station, listener: listenerId } });
-		if (data && station === freq) here = data.listeners;
+		const { data } = await api.POST('/listen', { body: { station, listener: listenerId, person: personId } });
+		if (!data) return;
+		me = data.you;
+		stations = stations.some((s) => s.id === station) ? stations.map((s) => (s.id === station ? data.station : s)) : [data.station, ...stations];
 		refresh();
 	}
 	function leave() {
 		try { navigator.sendBeacon('/api/leave', new Blob([JSON.stringify({ listener: listenerId })], { type: 'application/json' })); } catch { /* page is going away anyway */ }
-		stations = stations.map((s) => (s.id === freq ? { ...s, listeners: Math.max(0, s.listeners - 1) } : s));
-		here = Math.max(0, here - 1);
+		stations = stations.map((s) => (s.id === freq ? without(s) : s));
 	}
 	function prepare() {
 		if (ready) return ready;
 		loading = 'warming up';
 		ready = (async () => {
-			const ctx = new AudioContext({ latencyHint: 'playback' });
-			const e = new Engine(ctx);
-			if (new URLSearchParams(location.search).has('mute')) e.master.disconnect();
+			// localhost never reaches the speakers unless asked with ?sound=1, so working on this page can't make noise; ?mute=1 silences anywhere
+			const q = new URLSearchParams(location.search);
+			silent = q.has('mute') || (['localhost', '127.0.0.1'].includes(location.hostname) && !q.has('sound'));
+			const opts = { latencyHint: 'playback' } as AudioContextOptions;
+			let ctx: AudioContext;
+			try { ctx = new AudioContext(silent ? { ...opts, sinkId: { type: 'none' } } as AudioContextOptions : opts); } catch { ctx = new AudioContext(opts); }
+			const e = new Engine(ctx, { silent });
 			(window as unknown as { __ngr: unknown }).__ngr = { engine: e, get player() { return player; } };
 			const samples = await loadSamples((d, t) => (loading = `loading instruments ${d}/${t}`));
 			await e.load(samples, (p, inst) => (loading = `tuning ${inst.replace(/_/g, ' ')} ${Math.round(p * 100)}%`));
@@ -80,7 +94,7 @@
 			if (engine.ctx.state !== 'running') await Promise.race([engine.ctx.resume(), new Promise((r) => setTimeout(r, 300))]);
 			if (engine.ctx.state !== 'running') return;
 			player?.stop();
-			player = new Player(engine, (bar) => { now = bar.silent ? null : { cue: `${bar.cue.keyName} · ${bar.cue.prog} · ${bar.tempo} bpm · ${bar.cue.flavor}`, section: `${bar.section.name} ${bar.section.index + 1}/${bar.section.bars} · ${bar.cue.melodyInst.replace(/_/g, ' ')}`, chord: bar.chord }; });
+			player = new Player(engine, (bar) => { now = bar.silent ? null : { cue: `${bar.cue.keyName} · ${bar.cue.prog} · ${bar.tempo} bpm ${bar.beats}/4 · ${bar.cue.groove} · ${bar.cue.flavor}`, section: `${bar.section.name} ${bar.section.index + 1}/${bar.section.bars} · ${SHORT[bar.cue.melodyInst] ?? bar.cue.melodyInst}`, chord: bar.chord }; });
 			const station = createStation(freq);
 			engine.setSpace(station.profile.space);
 			player.start(station, stationTime);
@@ -93,10 +107,14 @@
 		id = Math.min(HI, Math.max(LO, id));
 		if (id === freq) return;
 		const from = freq;
-		freq = id; now = null; here = (onair.get(id) ?? 0) + (power ? 1 : 0);
+		freq = id; now = null;
 		useStation(id);
 		history.replaceState(null, '', url());
-		if (power) { stations = stations.map((s) => (s.id === from ? { ...s, listeners: Math.max(0, s.listeners - 1) } : s.id === id ? { ...s, listeners: s.listeners + 1 } : s)); beat(id); }
+		if (power) {
+			stations = stations.map((s) => (s.id === from ? without(s) : s.id === id ? withMe(s) : s));
+			if (me && !stations.some((s) => s.id === id)) stations = [...stations, { id, listeners: 1, lastHeard: Math.floor(Date.now() / 1000), people: [me] }];
+			beat(id);
+		}
 		if (!playing || !engine) return;
 		stop();
 		engine.static_(engine.ctx.currentTime + 0.02, 0.35, 0.18);
@@ -151,7 +169,7 @@
 		<div class="top">
 			<div class="grille"></div>
 			<div class="display">
-				<div class="row1"><span class="big">{name.freq}</span><span class="unit">FM</span><span class="call">{name.call}</span><span class="fill"></span><span class="who" class:lit={here > 0}>{here} listening</span></div>
+				<div class="row1"><span class="big">{name.freq}</span><span class="unit">FM</span><span class="call">{name.call}</span>{#if silent}<span class="hush">silent</span>{/if}<span class="fill"></span>{#if me}<span class="me">{me.emoji} {me.name}</span>{/if}<span class="who" class:lit={(mine?.listeners ?? 0) > 1}><People people={mine?.people ?? []} {me} /></span></div>
 				<div class="row2">{name.slogan}</div>
 				<div class="row3">
 					{#if loading}{loading}
@@ -179,7 +197,7 @@
 		{#if mixerOpen}<div class="drawer"><Mixer /></div>{/if}
 	</div>
 
-	<Stations {stations} current={freq} onTune={tune} />
+	<Stations {stations} {me} current={freq} onTune={tune} />
 	</div>
 </main>
 
@@ -209,11 +227,13 @@
 		box-shadow: inset 0 3px 12px rgba(0, 0, 0, 0.8), inset 0 0 0 2px #2c2a27, 0 1px 0 rgba(255, 255, 255, 0.6);
 		font-family: "SF Mono", Menlo, Consolas, monospace; text-shadow: 0 0 6px rgba(120, 255, 170, 0.6);
 	}
-	.row1 { display: flex; align-items: baseline; gap: 10px; }
+	.row1 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 10px; }
 	.big { font-size: 40px; font-weight: 700; letter-spacing: 0.04em; line-height: 1; }
 	.unit { font-size: 14px; letter-spacing: 0.2em; }
 	.call { font-size: 14px; letter-spacing: 0.25em; color: #a9ffcc; }
+	.hush { font-size: 11px; letter-spacing: 0.25em; text-transform: uppercase; color: #ff6b6b; text-shadow: 0 0 8px rgba(255, 80, 80, 0.7); }
 	.fill { flex: 1; }
+	.me { font-size: 12px; letter-spacing: 0.06em; color: #ffb347; text-shadow: 0 0 8px rgba(255, 150, 40, 0.5); white-space: nowrap; }
 	.who { font-size: 12px; letter-spacing: 0.1em; color: #4c7a5e; text-shadow: none; }
 	.who.lit { color: #ffb347; text-shadow: 0 0 8px rgba(255, 150, 40, 0.7); }
 	.row2 { margin-top: 6px; font-size: 13px; letter-spacing: 0.08em; color: #a9ffcc; text-transform: uppercase; }

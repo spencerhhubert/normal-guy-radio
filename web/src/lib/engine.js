@@ -57,8 +57,9 @@ function noiseBuffer(ctx, seconds, seed) {
 }
 
 export class Engine {
-  constructor(ctx) {
-    this.ctx = ctx; this.banks = {}; this.active = new Set();
+  // silent never connects to the speakers; the meters and the scope still run
+  constructor(ctx, { silent = false } = {}) {
+    this.ctx = ctx; this.silent = silent; this.banks = {}; this.active = new Set();
     this.noise = noiseBuffer(ctx, 2, 1234567);
     this.build();
   }
@@ -92,7 +93,8 @@ export class Engine {
     this.reverbReturn = ctx.createGain(); this.reverbReturn.gain.value = 0.9;
     this.space = ctx.createGain();
     this.reverb.connect(this.space).connect(this.reverbReturn).connect(this.bus);
-    this.bus.connect(lowShelf).connect(highShelf).connect(comp).connect(makeup).connect(clip).connect(this.master).connect(this.analyser).connect(ctx.destination);
+    this.bus.connect(lowShelf).connect(highShelf).connect(comp).connect(makeup).connect(clip).connect(this.master).connect(this.analyser);
+    if (!this.silent) this.analyser.connect(ctx.destination);
     this.strips = {};
     for (const [name, cfg] of Object.entries({ ...INSTRUMENTS, ...DRUMS })) {
       const input = ctx.createGain(); input.gain.value = db(cfg.gain + (cfg.norm || 0));
@@ -276,8 +278,8 @@ export async function renderOffline(samples, stationId, stationTime, seconds, on
   /** @type {object[]} */
   const log = [];
   let q = station.tune(stationTime);
-  const base = 0.05 - (stationTime - q.start), AHEAD = 3.0;
-  let t = q.start + base;
+  const AHEAD = 3.0;
+  let t = 0.05 - (stationTime - q.start);
   /** @param {number} limit */
   function scheduleUntil(limit) {
     while (t < limit && t < seconds) {
